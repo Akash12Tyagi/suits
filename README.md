@@ -1,12 +1,44 @@
-# React + Vite
+# Octaboot — Tailoring for the few
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A scroll-driven 3D web experience: a bespoke three-piece suit is cut flat, carried
+to the tailor's form, and folded into shape piece by piece as you scroll. Scroll back
+up and every piece unfolds again.
 
-Currently, two official plugins are available:
+Research, technique decisions and risk notes: [`docs/ATELIER_RESEARCH.md`](docs/ATELIER_RESEARCH.md).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Run
 
-## Expanding the ESLint configuration
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm run build    # production build in dist/
+npm run lint
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+The original API dashboard is still available at `/#/dashboard`.
+
+## How it is built
+
+| Path | Role |
+|------|------|
+| `src/atelier/Atelier.jsx` | Page: chapters, text reveals, colour swatches, footer |
+| `src/atelier/content.js` | All copy and chapter order |
+| `src/atelier/scroll.js` | Lenis smooth scroll synced to GSAP ScrollTrigger |
+| `src/atelier/three/body.js` | The body as parametric tubes (torso, arms, legs) |
+| `src/atelier/three/cloth.js` | Pattern-piece generator + the fold/unfold vertex shader |
+| `src/atelier/three/suit.js` | Every garment piece (shirt, tie, waistcoat, jacket, trousers), buttons, rig |
+| `src/atelier/three/choreography.js` | The single scrubbed timeline that drives all of it |
+| `src/atelier/three/Stage.js` | Renderer, lights, camera framing, post-processing |
+| `src/atelier/three/atmosphere.js` | Light shaft, dust, floor, street lamps, rain |
+| `src/atelier/three/mannequin.js` | The glowing tailor's form |
+
+Every garment vertex stores two shapes: the piece **closed around the body** and
+the same piece **laid flat** (or standing open, for collars and lapels). The shader
+blends between them along a Bézier arc with a per-vertex delay, so cloth wraps from its
+centre outward and hinged pieces swing over their fold line.
+
+To retime a chapter, edit `choreography.js`. Chapter *i* is pinned for timeline time
+`[i, i + 0.545]`. To restyle the copy, edit `content.js`.
+
+No images are downloaded: cloth textures are generated on a canvas at load, and fonts
+are self-hosted via `@fontsource`.

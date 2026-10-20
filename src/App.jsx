@@ -1,4 +1,5 @@
 import React from "react";
+import "./index.css";
 import UsersTable from "./components/UsersTable";
 import HealthCheck from "./components/HealthCheck";
 
