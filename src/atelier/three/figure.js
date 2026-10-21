@@ -11,12 +11,15 @@ import {
 import { createRig, skinWeights, attachToBone, boneForTorsoY, ELBOW_T, KNEE_T } from "./rig.js";
 import { Motion } from "./motion.js";
 import { Character } from "./character.js";
+import { CAST } from "./characters.js";
+import { stripeTexture } from "./textures.js";
 import {
   buttonGeometry,
   fedora,
   hornMaterial,
   placeOnTube,
   pocketSquareGeometry,
+  pocketPuffGeometry,
   shoeGeometry,
   sleeveStitches,
 } from "./props.js";
@@ -39,6 +42,28 @@ export const COLOURWAYS = {
   flannel: { label: "Flannel", wool: "#6f7279", lining: "#23262e", tie: "#15171c", hat: "#2c2d31", shoes: "#0b0b0c" },
   ivory: { label: "Ivory", wool: "#d9d2c3", lining: "#7b5b3c", tie: "#1e1f24", hat: "#d4cbb8", shoes: "#3b2416" },
   bordeaux: { label: "Bordeaux", wool: "#561321", lining: "#14090c", tie: "#141015", hat: "#3a0b14", shoes: "#0b0b0c" },
+  // The two reference suits.
+  sage: { label: "Sage", wool: "#7b9d75", lining: "#c9d3c0", tie: "#1b1d22", hat: "#5f7a5a", shoes: "#3a2216", square: "#e9a3ae" },
+  chestnut: {
+    label: "Chestnut",
+    wool: "#ffffff", // the colour lives in the striped cloth map
+    cloth: { base: "#6b3d1d", stripe: "#dcc6a2", period: 0.0125 },
+    lining: "#3a1622",
+    tie: "#1b1d22",
+    hat: "#3a2416",
+    shoes: "#2c1810",
+    square: "#5b1b38",
+  },
+};
+
+/*
+ * How the suit is worn: the story figure wears a three-piece with a tie; the
+ * reference looks are two-piece, the shirt open at the neck, black buttons,
+ * a puffed silk square and a slimmer trouser.
+ */
+export const STYLES = {
+  threePiece: { collar: "closed", tie: true, vest: true, buttons: "horn", square: "points", slim: false },
+  openTwoPiece: { collar: "open", tie: false, vest: false, buttons: "black", square: "puff", slim: true },
 };
 
 const th = (sigma, phi) => HALF - sigma * phi;
@@ -144,29 +169,42 @@ class Piece {
 }
 
 export class Figure {
-  constructor(body, shared, { colourway = "midnight", detail = "full" } = {}) {
+  /**
+   * @param opts.detail    "full" (buttons, stitching, linings, thickness) or "lite"
+   * @param opts.cast      who wears it (characters.js)
+   * @param opts.style     how it is worn (STYLES)
+   * @param opts.hologram  start as the glowing hologram (the story's hero)
+   */
+  constructor(body, shared, { colourway = "midnight", detail = "full", cast = CAST.luca, style = STYLES.threePiece, hologram = false } = {}) {
     this.body = body;
     this.shared = shared;
     this.full = detail === "full";
+    this.style = style;
+    this.cast = cast;
     this.root = new THREE.Group();
     this.rig = createRig(body);
     this.root.add(this.rig.root);
     this.motion = new Motion(this.rig);
-    this.character = new Character(this.rig, body, { full: this.full });
+    this.character = new Character(this.rig, body, { cast, full: hologram, quality: this.full ? 1 : 0 });
     this.root.add(this.character.group);
 
     this.pieces = [];
     this.byName = {};
     this.byGroup = { shirt: [], tie: [], vest: [], jacket: [], trousers: [] };
     this.mats = { wool: [], lining: [], tie: [], shoes: [], hat: [] };
-    this.look = { reveal: 1, scan: this.full ? 0 : 1, glow: this.full ? 1 : 0, solid: this.full ? 0 : 1 };
+    this.look = { reveal: 1, scan: hologram ? 0 : 1, glow: hologram ? 1 : 0, solid: hologram ? 0 : 1 };
     this.uSway = { value: new THREE.Vector3() };
     this.hand = { curl: 0.24, pinchL: 0, pinchR: 0 };
     this.colourway = colourway;
 
     const cw = COLOURWAYS[colourway];
+    this.cw = cw;
     const tex = shared.textures;
-    this.horn = hornMaterial(colourway === "ivory" ? "#3a2a1e" : "#17120f");
+    this.horn =
+      style.buttons === "black"
+        ? new THREE.MeshPhysicalMaterial({ color: "#0b0b0c", vertexColors: true, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.08 })
+        : hornMaterial(colourway === "ivory" ? "#3a2a1e" : "#17120f");
+    this.cloth = cw.cloth ? stripeTexture(cw.cloth) : null;
     this.stitchMat = new THREE.MeshStandardMaterial({ color: "#8e8a83", roughness: 0.8 });
 
     this.params = {
@@ -189,8 +227,8 @@ export class Figure {
           sheen: 1,
           sheenRoughness: 0.42,
           sheenColor: c.clone().lerp(new THREE.Color("#c9d2e6"), 0.35),
-          map: tex.wool.map,
-          bumpMap: tex.wool.bump,
+          map: this.cloth ? this.cloth.map : tex.wool.map,
+          bumpMap: this.cloth ? this.cloth.bump : tex.wool.bump,
           bumpScale: 1.4,
           side,
         };
@@ -220,8 +258,8 @@ export class Figure {
     };
 
     this._shirt();
-    this._tie();
-    this._vest();
+    if (style.tie) this._tie();
+    if (style.vest) this._vest();
     this._jacket();
     this._trousers();
     this._shoes(cw);
@@ -369,6 +407,10 @@ export class Figure {
     const { torso, armL, armR } = this.body;
     const off = 0.006;
     let seed = 10;
+    // Worn open, the top two buttons are undone and the fronts part at the neck.
+    const open = this.style.collar === "open";
+    const neckOpen = (t) => (open ? 0.36 * Math.pow(sm(t, 0.34, 0.53), 1.1) : 0);
+    const gap = open ? 0.34 : 0.07;
     // Tucked in: a little blousing gathers just above the waist.
     const blouse = (t) => 0.005 * gauss(t + 0.04, 0.07);
 
@@ -382,14 +424,15 @@ export class Figure {
           rows: 60,
           offFn: (theta, t) => (s > 0 ? off + 0.0012 : off) + blouse(t),
           tRange: () => [-0.24, 0.532],
-          thetaRange: () => [th(s, s > 0 ? -0.04 : 0.0), th(s, HALF + 0.03)],
+          thetaRange: (t) => [th(s, (s > 0 ? -0.04 : 0.0) + neckOpen(t)), th(s, HALF + 0.03)],
         },
         "cotton",
         { skin: { shoulder: 0.4, leg: 0.2 } }
       );
       this._hoverOut(p, new THREE.Vector3(s * 0.55, 0, 0.85), 0.7, 0.05, seed++);
       if (s > 0) {
-        for (const t of [0.47, 0.36, 0.245, 0.13, 0.015, -0.1]) this._button(p, torso, HALF, t, off + 0.0028, 0.0052);
+        const buttons = open ? [0.245, 0.13, 0.015, -0.1] : [0.47, 0.36, 0.245, 0.13, 0.015, -0.1];
+        for (const t of buttons) this._button(p, torso, HALF, t, off + 0.0028, 0.0052);
       }
     }
 
@@ -418,7 +461,7 @@ export class Figure {
         rows: 6,
         off: 0.009,
         tRange: () => [0.526, 0.578],
-        thetaRange: () => [th(1, 0.07), th(1, PI * 2 - 0.07)],
+        thetaRange: () => [th(1, gap), th(1, PI * 2 - gap)],
         centre: { theta: -HALF, t: 0.55 },
       },
       "cotton",
@@ -427,7 +470,8 @@ export class Figure {
     this._hoverOut(band, new THREE.Vector3(0, 1, -0.3), 0.45, 0, seed++, 0.3);
 
     const leafTop = 0.582;
-    const leafPhi = (u) => 0.13 + u * (PI * 2 - 0.26);
+    const leafGap = open ? 0.4 : 0.13;
+    const leafPhi = (u) => leafGap + u * (PI * 2 - 2 * leafGap);
     const leaf = this._piece(
       "shirt",
       "shirt-collar-leaf",
@@ -435,13 +479,14 @@ export class Figure {
       {
         cols: 72,
         rows: 10,
-        offFn: (theta, t) => 0.013 + (leafTop - t) * 0.42,
+        // Open, the collar rolls further out and lies over the jacket collar.
+        offFn: (theta, t) => 0.013 + (leafTop - t) * (open ? 0.62 : 0.42),
         tRange: (u) => {
           const p = leafPhi(u);
           const fromFront = Math.min(p, PI * 2 - p);
-          return [leafTop - 0.05 - 0.032 * (1 - sm(fromFront, 0.13, 0.7)), leafTop];
+          return [leafTop - 0.05 - (open ? 0.042 : 0.032) * (1 - sm(fromFront, leafGap, leafGap + 0.6)), leafTop];
         },
-        thetaRange: () => [th(1, 0.13), th(1, PI * 2 - 0.13)],
+        thetaRange: () => [th(1, leafGap), th(1, PI * 2 - leafGap)],
         centre: { theta: -HALF, t: 0.56 },
         hinge: foldAcrossT(torso, leafTop, 0.01),
       },
@@ -688,6 +733,19 @@ export class Figure {
       );
       lapel.uniforms.uSpread.value = 0.35;
       this["lapel" + s] = lapel;
+      if (s > 0 && this.full) {
+        // The boutonnière buttonhole, hand-worked in the lapel.
+        const hole = new THREE.Mesh(
+          new THREE.CapsuleGeometry(0.0011, 0.016, 2, 6),
+          new THREE.MeshStandardMaterial({ color: "#0d0d0e", roughness: 0.7 })
+        );
+        const ht = 0.33;
+        const { rx } = torso.section(ht);
+        const hth = th(s, pin(ht) + 0.03 / (rx + fOff));
+        placeOnTube(hole, torso, hth, ht, fOff + 0.0122);
+        hole.rotateZ(Math.PI / 2 - 0.35);
+        this._attach(lapel, "chest", hole);
+      }
 
       const flapTop = -0.135;
       const flap = this._piece(
@@ -725,13 +783,14 @@ export class Figure {
     );
     this.welt = welt;
     {
+      const puff = this.style.square === "puff";
       const sq = new THREE.Mesh(
-        pocketSquareGeometry(),
+        puff ? pocketPuffGeometry() : pocketSquareGeometry(),
         new THREE.MeshPhysicalMaterial({
-          color: "#f4f2ee",
-          roughness: 0.45,
+          color: this.cw.square ?? "#f4f2ee",
+          roughness: 0.42,
           sheen: 1,
-          sheenColor: new THREE.Color("#ffffff"),
+          sheenColor: new THREE.Color(this.cw.square ?? "#ffffff").lerp(new THREE.Color("#ffffff"), 0.5),
           side: THREE.DoubleSide,
         })
       );
@@ -864,7 +923,13 @@ export class Figure {
             const d = Math.atan2(Math.sin(theta - HALF), Math.cos(theta - HALF));
             const crease = 0.006 * Math.exp(-(d * d) / 0.012);
             const brk = 0.0045 * Math.sin(t * leg.length * 48 + d * 1.5) * sm(t, 0.88, 0.99) * (0.4 + 0.6 * Math.cos(d));
-            return 0.012 + crease * (1 - sm(t, 0.9, 1.0) * 0.6) + brk;
+            // Below the knee the trouser hangs straight, tapering a little to
+            // the hem, rather than following the calf and ankle.
+            const { rx } = leg.section(t);
+            const hem = this.style.slim ? 0.06 : 0.068;
+            const hang = THREE.MathUtils.lerp(0.078, hem, sm(t, 0.5, 1.0));
+            const ease = t > 0.4 ? Math.max(0.012, hang - rx) : 0.012;
+            return ease + crease * (1 - sm(t, 0.9, 1.0) * 0.6) + brk;
           },
           tRange: () => [-0.06, 1.0],
           thetaRange: () => [HALF - PI, HALF + PI],
@@ -996,7 +1061,9 @@ export class Figure {
       if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => mats.add(m));
       if (o.customDepthMaterial) mats.add(o.customDepthMaterial);
     });
-    geos.forEach((g) => g.dispose());
+    geos.forEach((g) => !g.userData.shared && g.dispose());
+    this.cloth?.map.dispose();
+    this.cloth?.bump.dispose();
     mats.forEach((m) => m.dispose());
     this.character.dispose();
   }

@@ -51,6 +51,7 @@ export function buildChoreography(stage, storyEl, { chapters, reducedMotion }) {
   const M = hero.motion.state;
   const P = (...names) => names.map((n) => hero.byName[n]);
   const cuff = stage.cuffShot();
+  const [sage, chestnut] = stage.models.map((m) => m.at);
 
   const tl = gsap.timeline({
     defaults: { ease: "none" },
@@ -76,12 +77,23 @@ export function buildChoreography(stage, storyEl, { chapters, reducedMotion }) {
     { px: 0.7, py: -0.12, pz: 6.1, tx: 0.55, ty: -0.12, tz: -0.7, fov: 30, sx: -0.13, sy: 0 }, // procession
     { px: -0.7, py: 0.0, pz: 3.9, tx: -0.62, ty: -0.14, tz: -0.35, fov: 30, sx: -0.12, sy: 0 }, // library
     { px: cuff.pos.x, py: cuff.pos.y, pz: cuff.pos.z, tx: cuff.at.x, ty: cuff.at.y, tz: cuff.at.z, fov: 26, sx: 0.2, sy: 0 }, // detail
-    { px: 0, py: 0.3, pz: 6.2, tx: 0, ty: -0.12, tz: 0, fov: 30, sx: 0, sy: -0.06 }, // finale
+    // The lookbook, framed like the reference photography: full length, eye level.
+    { px: sage.x + 0.35, py: -0.02, pz: 4.3, tx: sage.x + 0.05, ty: -0.14, tz: 0, fov: 30, sx: 0.13, sy: 0, cut: true }, // sage
+    { px: chestnut.x - 0.3, py: -0.02, pz: 4.4, tx: chestnut.x - 0.05, ty: -0.14, tz: chestnut.z, fov: 30, sx: -0.13, sy: 0 }, // chestnut
+    { px: 0, py: 0.3, pz: 6.2, tx: 0, ty: -0.12, tz: 0, fov: 30, sx: 0, sy: -0.06, cut: true }, // finale
   ];
   // The opening frame shows the whole figure.
   Object.assign(cam, { px: 0.3, py: -0.05, pz: 4.6, tx: 0, ty: -0.12, tz: 0, fov: 30, sx: 0.17, sy: 0 });
   for (let i = 1; i < keys.length; i++) {
-    tl.to(cam, { ...keys[i], duration: 0.72, ease: "power2.inOut" }, i - 0.62);
+    const { cut, ...key } = keys[i];
+    if (cut) {
+      // A cut to black: fade out, jump, fade back in.
+      tl.to(look, { blackout: 1, duration: 0.12, ease: "power1.in" }, i - 0.6);
+      tl.to(cam, { ...key, duration: 0.02 }, i - 0.46);
+      tl.to(look, { blackout: 0, duration: 0.18, ease: "power1.out" }, i - 0.4);
+    } else {
+      tl.to(cam, { ...key, duration: 0.72, ease: "power2.inOut" }, i - 0.62);
+    }
   }
 
   // ---- 1 · The measure: three tapes wind on.
@@ -166,10 +178,14 @@ export function buildChoreography(stage, storyEl, { chapters, reducedMotion }) {
   tl.to(W, { rail: 0, duration: 0.3 }, 9.5);
   tl.to(look, { dof: 1, duration: 0.3 }, 9.62);
 
-  // ---- 11 · Finale: pull away, lights down.
-  tl.to(look, { dof: 0, duration: 0.15 }, 10.45);
-  tl.to(look, { exposure: 0.7, fade: 0.55, studio: 1, duration: 0.5 }, 10.5);
-  tl.to(look, { turn: 0.35, duration: 0.6, ease: "sine.inOut" }, 10.45);
+  // ---- 11, 12 · The collection: daylight studio, two of the cast in the reference suits.
+  tl.to(look, { dof: 0, duration: 0.05 }, 10.45);
+  tl.to(look, { day: 1, lookbook: 1, studio: 0, duration: 0.01 }, 10.53);
+
+  // ---- 13 · Finale: back in the dark atelier; pull away, lights down.
+  tl.to(look, { day: 0, lookbook: 0, studio: 1, duration: 0.01 }, 12.53);
+  tl.to(look, { exposure: 0.7, fade: 0.55, duration: 0.5 }, 12.5);
+  tl.to(look, { turn: 0.35, duration: 0.6, ease: "sine.inOut" }, 12.45);
 
   return tl;
 }

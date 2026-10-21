@@ -197,3 +197,44 @@ jacket front, a pendant lamp lights the table, and the pieces lift off the table
 following chapters), *Made to Be Worn* (hologram to solid, cuff gesture), and *The Cloth
 Library* (plain, chalk stripe, Glen check and herringbone, drawn procedurally and
 applied to the suit). *The Cut* now lets you drag to turn the figure (mouse/pen).
+
+---
+
+## 11. Third pass: real people, and the reference suits
+
+**Brief.** Recreate the two reference suits (sage two-piece; chestnut chalk stripe)
+so they look real, worn by realistic models.
+
+**Decisions.**
+* The suits are recreated, not pasted: the reference photos carry another brand's
+  label and are that brand's photography, so neither the images nor the mark are used.
+  What *is* taken is the design: notch lapel, two black buttons, flap pockets, a
+  puffed square, an open-collar white shirt with black buttons, slim trousers with a
+  single break, brown oxfords, and the stances (hand in pocket, hand at the button,
+  weight on one leg, a crossed foot).
+* The models are **original characters** with the same editorial look. The faces
+  of the men in the photographs are not reproduced. See `docs/CHARACTERS.md`.
+
+**How the people are built.** Heads, hair and hands are signed-distance sculpts
+(`sdf.js`, `human.js`) meshed with Surface Nets using a narrow band, so only cells
+near the surface are evaluated exactly. Faces follow the facial thirds. Eyes are
+textured spheres behind sculpted lids. Hair is a volume clipped to a hairline
+(waved, side-parted or cropped), with a shader that ripples the normal across the
+strands. Skin is painted per vertex (brows, beard shadow, lips, warmth) and shaded
+with wrapped diffuse and a red terminator in place of subsurface scattering. Hands
+have 15 finger bones and are skinned by inverse distance to each phalanx. The whole
+cast is sculpted in parallel Web Workers before the stage is built (about 0.6 s per
+head, 0.4 s per hair style, 0.6 s for the hands on one core).
+
+**Gotchas found while building it.**
+* Hand geometry is modelled in its own frame, so the mesh must sit at the hand
+  root's bind transform and bind with that matrix. Binding at identity scattered the
+  vertices.
+* A material with `vertexColors` on geometry without a colour attribute renders
+  black. The body uses an unpainted skin material.
+* `Math.hypot` dominated the sculpt time; plain `Math.sqrt` halved it.
+* three r186 removed `PCFSoftShadowMap`; `PCFShadowMap` with `shadow.radius` is used.
+
+**New chapters:** *The Collection No. 1 (Sage)* and *No. 2 (Chestnut chalk stripe)*,
+in a daylight studio with an arch and plinth after the reference set. The page
+chrome switches to dark ink there, and a cut to black hides the jump between sets.

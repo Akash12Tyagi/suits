@@ -9,6 +9,9 @@ import * as THREE from "three";
  *    roll the foot; pelvis bobs, sways and rotates; the chest counter-rotates
  *    and the arms swing opposite the legs with a lagging elbow
  *  - gesture: both arms reach by IK so the right hand straightens the left cuff
+ *  - pose: an editorial stance — weight on one leg, the other foot turned
+ *    out or crossed in front, one hand in a trouser pocket, the other at the
+ *    jacket button, the head turned off-camera
  * Everything blends by weight, and with all weights at 0 the rig is in its
  * bind pose, which is the pose every garment piece was cut for.
  */
@@ -92,6 +95,7 @@ export class Motion {
     this.state = {
       walk: 0, // 0 idle … 1 walking
       gesture: 0, // 0 … 1 adjusting the left cuff
+      pose: 0, // 0 … 1 the editorial stance described by poseDef
       breathe: 1,
       lookDown: 0,
       speed: 0.95, // m/s — the street must move at this speed
@@ -104,6 +108,8 @@ export class Motion {
     this._swayVel = new V();
     this._ankleY = rig.bind.footL.y;
     this._saved = {};
+    // The stance a lookbook figure holds; see setPose().
+    this.poseDef = { weight: "R", pocket: "R", button: "L", cross: false, headYaw: 0.35, headPitch: -0.04 };
     // Which way each palm faces in its hand bone's frame (hands hang palm-in).
     this.palm = {};
     for (const [s, side] of [
@@ -138,10 +144,13 @@ export class Motion {
     const shift = Math.sin(time * 0.37) * br;
     const bob = -0.045 + 0.017 * Math.cos(TAU * 2 * (p - 0.3));
     const hips = b.hips;
-    hips.position.x += THREE.MathUtils.lerp(0.006 * shift, 0.02 * Math.sin(TAU * (p - 0.05)), walk);
-    hips.position.y += THREE.MathUtils.lerp(-0.004 * br, bob, walk);
-    const hipYaw = -0.085 * Math.cos(TAU * p) * walk;
-    const hipRoll = THREE.MathUtils.lerp(0.012 * shift, -0.05 * Math.sin(TAU * (p - 0.05)), walk);
+    const pose = state.pose;
+    const pd = this.poseDef;
+    const wSide = pd.weight === "L" ? 1 : -1;
+    hips.position.x += THREE.MathUtils.lerp(0.006 * shift, 0.02 * Math.sin(TAU * (p - 0.05)), walk) + 0.024 * wSide * pose;
+    hips.position.y += THREE.MathUtils.lerp(-0.004 * br, bob, walk) - 0.012 * pose;
+    const hipYaw = -0.085 * Math.cos(TAU * p) * walk + (pd.cross ? 0.12 : 0.06) * -wSide * pose;
+    const hipRoll = THREE.MathUtils.lerp(0.012 * shift, -0.05 * Math.sin(TAU * (p - 0.05)), walk) + 0.045 * wSide * pose;
     hips.quaternion.setFromEuler(_eul.set(0.03 * walk, hipYaw, hipRoll));
 
     // ---- spine, chest, head
@@ -152,9 +161,14 @@ export class Motion {
     b.clavL.position.y += 0.0018 * breath;
     b.clavR.position.y += 0.0018 * breath;
     const look = state.lookDown + gesture * 0.34;
-    b.neck.quaternion.setFromEuler(_eul.set(look * 0.3, 0.02 * Math.sin(time * 0.23) * br, 0));
+    const turn = pd.headYaw * pose;
+    b.neck.quaternion.setFromEuler(_eul.set(look * 0.3 + pd.headPitch * 0.4 * pose, 0.02 * Math.sin(time * 0.23) * br + turn * 0.4, 0));
     b.head.quaternion.setFromEuler(
-      _eul.set(look * 0.7 + 0.03 * Math.sin(TAU * 2 * p) * walk, 0.04 * Math.sin(time * 0.21) * br * (1 - walk), 0)
+      _eul.set(
+        look * 0.7 + 0.03 * Math.sin(TAU * 2 * p) * walk + pd.headPitch * 0.6 * pose,
+        0.04 * Math.sin(time * 0.21) * br * (1 - walk) + turn * 0.6,
+        -0.04 * wSide * pose
+      )
     );
     rig.root.updateMatrixWorld(true);
 
@@ -188,13 +202,28 @@ export class Motion {
         this._ankleY + (lift + heel) * walk,
         z * walk + (pitch < 0 ? -0.04 * Math.sin(-pitch) : 0) * walk
       );
+      // Stance: the weight leg plumb under the hip, the free foot turned out
+      // and a little forward — or crossed in front of the other.
+      let yaw = 0;
+      if (pose > 0.001) {
+        const side = s === "L" ? 1 : -1;
+        const free = side !== wSide;
+        const st = free
+          ? pd.cross
+            ? new V(-side * 0.03, this._ankleY + 0.012, 0.11)
+            : new V(bindFoot.x * 1.55, this._ankleY, 0.075)
+          : new V(bindFoot.x * 0.92 + wSide * 0.012, this._ankleY, -0.02);
+        target.lerp(st, pose);
+        yaw = (free ? (pd.cross ? -side * 0.15 : side * 0.38) : side * 0.12) * pose;
+        if (free && pd.cross) pitch = -0.18 * pose;
+      }
       rig.root.localToWorld(target);
       const pole = rig.root.localToWorld(new V(bindFoot.x * 1.1, -0.5, 1.2));
       solveTwoBone(b["thigh" + s], b["shin" + s], b["foot" + s], target, pole);
 
       // Foot attitude: level with the ground, rolled by the gait.
       rig.root.getWorldQuaternion(_qw);
-      _qw.multiply(_q.setFromEuler(_eul.set(-pitch * walk, 0, 0)));
+      _qw.multiply(_q.setFromEuler(_eul.set(-pitch * Math.max(walk, pose), yaw, 0)));
       b["shin" + s].getWorldQuaternion(_qp).invert();
       b["foot" + s].quaternion.copy(_qp.multiply(_qw));
       b["foot" + s].updateMatrixWorld(true);
@@ -218,6 +247,7 @@ export class Motion {
     rig.root.updateMatrixWorld(true);
 
     if (gesture > 0.001) this._gesture(time, gesture);
+    if (pose > 0.001) this._pose(time, pose);
 
     for (const s of ["L", "R"]) {
       this.out["elbow" + s] = Math.min(1, angleOf(b["foreArm" + s].quaternion) / 1.7);
@@ -240,6 +270,59 @@ export class Motion {
     }
     this._prevHips.copy(_A);
     this.out.groundSpeed = state.speed * walk;
+  }
+
+  setPose(def) {
+    Object.assign(this.poseDef, def);
+  }
+
+  _pose(time, w) {
+    const { rig } = this;
+    const b = rig.bones;
+    const pd = this.poseDef;
+    const names = ["upperArmL", "foreArmL", "handL", "upperArmR", "foreArmR", "handR"];
+    for (const n of names) this._saved[n] = (this._saved[n] || new Q()).copy(b[n].quaternion);
+    rig.root.getWorldQuaternion(_qw);
+    const rootQ = _qw.clone();
+
+    // One hand slides into the trouser pocket, under the jacket skirt.
+    const P = pd.pocket === "L" ? 1 : -1;
+    const ps = pd.pocket;
+    solveTwoBone(
+      b["upperArm" + ps],
+      b["foreArm" + ps],
+      b["hand" + ps],
+      rig.root.localToWorld(new V(P * 0.168, -0.15, 0.04)),
+      rig.root.localToWorld(new V(P * 0.6, 0.05, -0.5))
+    );
+    // The other takes the jacket's top button.
+    const Bt = pd.button === "L" ? 1 : -1;
+    const bs = pd.button;
+    const breath = Math.sin(time * 1.55) * 0.004;
+    solveTwoBone(
+      b["upperArm" + bs],
+      b["foreArm" + bs],
+      b["hand" + bs],
+      rig.root.localToWorld(new V(Bt * 0.085, 0.02 + breath, 0.215)),
+      rig.root.localToWorld(new V(Bt * 0.55, -0.35, 0.05))
+    );
+    for (const [s, want, flex] of [
+      [ps, new V(-P, -0.2, 0.25), 0.35],
+      [bs, new V(0.0, 0.1, -1), 0.2],
+    ]) {
+      const fore = b["foreArm" + s];
+      const hand = b["hand" + s];
+      hand.quaternion.setFromEuler(_eul.set(flex, 0, 0));
+      hand.updateMatrixWorld(true);
+      const axis = hand.getWorldPosition(new V()).sub(fore.getWorldPosition(new V()));
+      const palm = this.palm[s].clone().applyQuaternion(hand.getWorldQuaternion(new Q()));
+      twistAbout(fore, axis, palm, want.applyQuaternion(rootQ));
+    }
+    for (const n of names) {
+      _q.copy(b[n].quaternion);
+      b[n].quaternion.copy(this._saved[n]).slerp(_q, w);
+    }
+    rig.root.updateMatrixWorld(true);
   }
 
   _gesture(time, w) {

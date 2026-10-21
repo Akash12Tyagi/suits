@@ -18,7 +18,7 @@ export class Atmosphere {
     this.group = new THREE.Group();
     this.reducedMotion = reducedMotion;
     this.lamps = [];
-    this.look = { beam: 1, dust: 1, pool: 1, street: 0, travel: 0 };
+    this.look = { beam: 1, dust: 1, pool: 1, street: 0, travel: 0, day: 0 };
 
     this._beam();
     if (!lowPower) this._dust();
@@ -115,6 +115,7 @@ export class Atmosphere {
     this.floorMat = new THREE.ShaderMaterial({
       uniforms: {
         uPool: { value: 1 },
+        uDay: { value: 0 },
         uStreet: { value: 0 },
         uTravel: { value: 0 },
         uTime: { value: 0 },
@@ -132,7 +133,7 @@ export class Atmosphere {
       fragmentShader: /* glsl */ `
         uniform float uPool; uniform float uStreet; uniform float uTravel; uniform float uTime;
         uniform vec2 uLamps[${LAMP_ROWS * 2}];
-        uniform vec3 uFogColor; uniform float uFogDensity;
+        uniform vec3 uFogColor; uniform float uFogDensity; uniform float uDay;
         varying vec3 vWorld;
         float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float noise(vec2 p){
@@ -164,6 +165,11 @@ export class Atmosphere {
           }
           street += vec3(0.5, 0.55, 0.7) * exp(-r2 / 0.8) * 0.05;
           col = mix(col, street, uStreet);
+
+          // Daylight studio: pale polished concrete.
+          float grain = noise(p * 3.0) * 0.6 + noise(p * 19.0) * 0.4;
+          vec3 concrete = vec3(0.36, 0.365, 0.375) * (0.92 + 0.12 * grain);
+          col = mix(col, concrete, uDay);
 
           float d = length(vWorld - cameraPosition);
           float f = 1.0 - exp(-uFogDensity * uFogDensity * d * d);
@@ -276,6 +282,7 @@ export class Atmosphere {
     const fu = this.floorMat.uniforms;
     fu.uPool.value = L.pool;
     fu.uStreet.value = L.street;
+    fu.uDay.value = L.day;
     fu.uTravel.value = L.travel;
     fu.uTime.value = time;
 

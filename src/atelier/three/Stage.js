@@ -7,12 +7,21 @@ import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { BokehPass } from "three/addons/postprocessing/BokehPass.js";
 import { createBody, FLOOR_Y } from "./body.js";
-import { Figure } from "./figure.js";
+import { Figure, STYLES } from "./figure.js";
+import { CAST } from "./characters.js";
+import { prepareCast } from "./human.js";
+import { LOOKBOOK, LookbookSet } from "./lookbook.js";
 import { Atmosphere } from "./atmosphere.js";
 import { Workshop } from "./workshop.js";
 import { cottonTexture, silkTexture, woolTexture } from "./textures.js";
 
 const FOG = "#07080b";
+const DAY = "#a9abb0"; // the lookbook studio's pale grey (before tone mapping)
+
+/** Sculpt the cast off the main thread before the stage is built. */
+export function prepareStage() {
+  return prepareCast(Object.values(CAST));
+}
 
 const FinishShader = {
   uniforms: {
@@ -92,6 +101,9 @@ export class Stage {
       approach: 0,
       fade: 1,
       dof: 0,
+      day: 0, // 0 the dark atelier … 1 the daylight lookbook studio
+      blackout: 0, // cuts between sets
+      lookbook: 0,
     };
     this.pointer = new THREE.Vector2();
     this.pointerSmooth = new THREE.Vector2();
@@ -112,17 +124,17 @@ export class Stage {
     };
 
     this.body = createBody();
-    this.hero = new Figure(this.body, this.shared, { colourway: "midnight", detail: "full" });
+    this.hero = new Figure(this.body, this.shared, { colourway: "midnight", detail: "full", cast: CAST.luca, hologram: true });
     scene.add(this.hero.root);
     if (reducedMotion) this.hero.motion.state.breathe = 0;
 
     // The procession: three more finished suits, walking out of the fog.
     this.others = [
-      { colourway: "flannel", x: -1.15, z: -0.75, phase: 0.31 },
-      { colourway: "ivory", x: 1.2, z: -0.55, phase: 0.62 },
-      { colourway: "bordeaux", x: 2.3, z: -1.7, phase: 0.14 },
+      { colourway: "flannel", x: -1.15, z: -0.75, phase: 0.31, cast: CAST.marcus },
+      { colourway: "ivory", x: 1.2, z: -0.55, phase: 0.62, cast: CAST.theo },
+      { colourway: "bordeaux", x: 2.3, z: -1.7, phase: 0.14, cast: CAST.kenji },
     ].map((o) => {
-      const f = new Figure(this.body, this.shared, { colourway: o.colourway, detail: "lite" });
+      const f = new Figure(this.body, this.shared, { colourway: o.colourway, detail: "lite", cast: o.cast });
       for (const p of f.pieces) Object.assign(p.state, { fly: 1, fold: 1, reveal: 1 });
       f.shoeState.reveal = 1;
       f.hatState.drop = 1;
@@ -136,6 +148,44 @@ export class Stage {
 
     this.workshop = new Workshop(this.hero, { anisotropy });
     scene.add(this.workshop.group);
+
+    // The lookbook: the two reference suits on two of the cast, in daylight.
+    this.set = new LookbookSet();
+    scene.add(this.set.group);
+    this.models = [
+      {
+        cast: CAST.luca,
+        colourway: "sage",
+        at: new THREE.Vector3(LOOKBOOK.x - 0.65, 0, LOOKBOOK.z),
+        yaw: 0.12,
+        pose: { weight: "R", pocket: "R", button: "L", cross: false, headYaw: 0.42, headPitch: -0.05 },
+      },
+      {
+        cast: CAST.kenji,
+        colourway: "chestnut",
+        at: new THREE.Vector3(LOOKBOOK.x + 0.75, 0, LOOKBOOK.z + 0.25),
+        yaw: -0.1,
+        pose: { weight: "L", pocket: "L", button: "R", cross: true, headYaw: -0.32, headPitch: -0.02 },
+      },
+    ].map((m) => {
+      const f = new Figure(this.body, this.shared, {
+        colourway: m.colourway,
+        detail: "full",
+        cast: m.cast,
+        style: STYLES.openTwoPiece,
+      });
+      for (const p of f.pieces) Object.assign(p.state, { fly: 1, fold: 1, reveal: 1 });
+      f.shoeState.reveal = 1;
+      f.motion.state.pose = 1;
+      f.motion.setPose(m.pose);
+      f.hand.curl = 0.3;
+      f.hand[m.pose.button === "L" ? "pinchL" : "pinchR"] = 0.6;
+      f.place(m.at.x, 0, m.at.z, m.yaw);
+      f.root.visible = false;
+      scene.add(f.root);
+      f.at = m.at;
+      return f;
+    });
 
     this.atmosphere = new Atmosphere({
       fogColor: FOG,
@@ -209,7 +259,23 @@ export class Stage {
     street.shadow.bias = -0.0004;
     street.shadow.normalBias = 0.02;
     s.add(street, street.target);
-    this.lights = { key, rimL, rimR, fill, hemi, street };
+    // Daylight: a big soft key over the lookbook set.
+    const day = new THREE.DirectionalLight("#fff6ec", 0);
+    day.position.set(LOOKBOOK.x + 2.2, 3.4, 3.0);
+    day.target.position.set(LOOKBOOK.x, -0.4, 0);
+    day.castShadow = true;
+    day.shadow.mapSize.set(shadowSize, shadowSize);
+    day.shadow.camera.left = -3;
+    day.shadow.camera.right = 3;
+    day.shadow.camera.top = 3;
+    day.shadow.camera.bottom = -3;
+    day.shadow.camera.near = 0.5;
+    day.shadow.camera.far = 10;
+    day.shadow.bias = -0.0003;
+    day.shadow.normalBias = 0.015;
+    day.shadow.radius = 6;
+    s.add(day, day.target);
+    this.lights = { key, rimL, rimR, fill, hemi, street, day };
   }
 
   _composer() {
@@ -364,21 +430,49 @@ export class Stage {
 
     this.workshop.update(t);
 
+    const lb = L.lookbook;
+    this.set.update(lb);
+    for (const f of this.models) {
+      f.root.visible = lb > 0.01;
+      if (!f.root.visible) continue;
+      f.look.reveal = lb;
+      f.update(t, dt);
+    }
+
+    // Daylight: the whole world brightens to the pale studio grey.
+    const day = L.day;
+    this.scene.background.set(FOG).lerp(this._dayColor || (this._dayColor = new THREE.Color(DAY)), day);
+    this.scene.fog.color.copy(this.scene.background);
+    this.scene.fog.density = THREE.MathUtils.lerp(0.11, 0.045, day);
+    this.renderer.setClearColor(this.scene.background, 1);
+    this.atmosphere.floorMat.uniforms.uFogColor.value.copy(this.scene.background);
+    this.atmosphere.floorMat.uniforms.uFogDensity.value = this.scene.fog.density;
+    this.scene.environmentIntensity = THREE.MathUtils.lerp(0.22, 0.75, day);
+
     const A = this.atmosphere.look;
     A.street = L.street;
     A.beam = L.studio;
     A.dust = L.studio;
     A.pool = L.studio;
+    A.day = L.day;
     this.atmosphere.update(t, dt, this.reducedMotion ? 0 : Math.max(ground, oRev > 0.01 ? 0.95 * L.street : 0));
 
     const li = this.lights;
     li.key.intensity = 13 * (0.35 + 0.65 * L.studio);
     li.street.intensity = 26 * L.street;
     li.rimL.color.set("#a9c1ff").lerp(new THREE.Color("#ffc58e"), L.street * 0.5);
+    li.day.intensity = 2.2 * L.day;
+    li.hemi.intensity = THREE.MathUtils.lerp(0.25, 1.1, L.day);
+    li.hemi.color.set("#5c6577").lerp(new THREE.Color("#e9ecf2"), L.day);
+    li.hemi.groundColor.set("#050506").lerp(new THREE.Color("#8d8e92"), L.day);
+    li.fill.intensity = THREE.MathUtils.lerp(0.35, 0.9, L.day);
+    this.finish.uniforms.uVignette.value = 1 - 0.7 * L.day;
+    // Bloom belongs to the dark atelier; on a pale set it only fogs the frame.
+    this.bloom.strength = 0.38 * (1 - L.day);
 
-    this.renderer.toneMappingExposure = 1.05 * L.exposure;
+    this.renderer.toneMappingExposure = 1.05 * L.exposure * (1 - 0.22 * L.day);
     this.finish.uniforms.uTime.value = this.reducedMotion ? 0 : t;
-    this.finish.uniforms.uFade.value = L.fade;
+    this.finish.uniforms.uFade.value = L.fade * (1 - L.blackout);
 
     this._applyCamera();
     this.composer.render(dt);
@@ -400,6 +494,8 @@ export class Stage {
     this.timer.dispose();
     this.hero.dispose();
     this.others.forEach((f) => f.dispose());
+    this.models.forEach((f) => f.dispose());
+    this.set.dispose();
     this.workshop.dispose();
     this.atmosphere.dispose();
     Object.values(this.shared.textures).forEach(({ map, bump }) => {

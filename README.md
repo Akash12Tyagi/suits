@@ -5,6 +5,7 @@ to the tailor's form, and folded into shape piece by piece as you scroll. Scroll
 up and every piece unfolds again.
 
 Research, technique decisions and risk notes: [`docs/ATELIER_RESEARCH.md`](docs/ATELIER_RESEARCH.md).
+The cast — who wears the clothes, and how: [`docs/CHARACTERS.md`](docs/CHARACTERS.md).
 
 ## Run
 
@@ -17,6 +18,9 @@ npm run lint
 
 The original API dashboard is still available at `/#/dashboard`.
 
+Dev only: `/lab.html?who=luca&yaw=0.6` is a turntable for sculpting heads and hair
+(`&view=hand&curl=0.3` for hands); `node dev/sdftest.mjs` times the sculpts.
+
 ## How it is built
 
 | Path | Role |
@@ -27,9 +31,13 @@ The original API dashboard is still available at `/#/dashboard`.
 | `src/atelier/three/body.js` | The body as parametric tubes (torso, arms, legs) |
 | `src/atelier/three/rig.js` | 20-bone skeleton over the tubes, skin weights |
 | `src/atelier/three/motion.js` | Procedural motion: idle breathing, IK walk cycle, cuff gesture, skirt sway |
-| `src/atelier/three/character.js` | The wearer: sculpted head, jointed hands, hologram ↔ solid |
+| `src/atelier/three/characters.js` | The cast: skin, hair, face proportions per character |
+| `src/atelier/three/sdf.js` | Signed-distance sculpting + Surface Nets mesher |
+| `src/atelier/three/human.js` | Heads, hair, eyes, skinned hands, skin and hair shading; sculpted in workers |
+| `src/atelier/three/character.js` | The wearer: head, hair, eyes, hands and body; hologram ↔ solid |
+| `src/atelier/three/lookbook.js` | The daylight lookbook set (arch, plinth) |
 | `src/atelier/three/cloth.js` | Pattern-piece generator + the fold / thickness / crease vertex shader |
-| `src/atelier/three/figure.js` | Every garment piece (shirt, tie, waistcoat, jacket, trousers), skinned to the rig |
+| `src/atelier/three/figure.js` | Every garment piece, skinned to the rig; colourways (incl. Sage, Chestnut stripe) and styles (three-piece, open two-piece) |
 | `src/atelier/three/workshop.js` | Measuring tapes, cutting table (chalk, shears, lamp), cloth-library rail |
 | `src/atelier/three/choreography.js` | The single scrubbed timeline that drives all of it |
 | `src/atelier/three/Stage.js` | Renderer, lights and shadows, camera framing, depth of field, post |
@@ -48,5 +56,5 @@ speed the street recedes, so they never slide.
 To retime a chapter, edit `choreography.js`. Chapter *i* is pinned for timeline time
 `[i, i + 0.545]`. To restyle the copy, edit `content.js`.
 
-No images or models are downloaded: geometry is generated in code, cloth, wood and
+No images or models are downloaded: geometry, including the faces and hands, is generated in code, cloth, wood and
 tape textures are drawn on a canvas at load, and fonts are self-hosted via `@fontsource`.
