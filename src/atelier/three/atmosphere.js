@@ -148,7 +148,7 @@ export class Atmosphere {
           col += vec3(0.62, 0.6, 0.58) * (exp(-r2 / 0.55) * 0.22 + exp(-r2 / 0.06) * 0.25) * uPool;
 
           // Street: wet setts drifting toward the camera, lamp reflections stretched into streaks.
-          vec2 q = vec2(p.x, p.y - uTravel);
+          vec2 q = vec2(p.x, p.y + uTravel); // the ground recedes under walking feet
           vec2 cell = abs(fract(q * vec2(2.2, 3.0)) - 0.5);
           float joint = smoothstep(0.44, 0.5, max(cell.x, cell.y));
           float wet = noise(q * 1.7) * 0.6 + noise(q * 7.0) * 0.4;
@@ -260,9 +260,10 @@ export class Atmosphere {
     this.group.add(this.rain);
   }
 
-  update(time, dt) {
+  /** speed: how fast the ground moves under walking figures (m/s). */
+  update(time, dt, speed = 0) {
     const L = this.look;
-    if (!this.reducedMotion) L.travel += dt * 1.35 * L.street;
+    L.travel += dt * speed;
 
     this.beamMat.uniforms.uIntensity.value = L.beam;
     this.beam.visible = L.beam > 0.01;
@@ -285,9 +286,9 @@ export class Atmosphere {
     const span = LAMP_ROWS * LAMP_SPACING;
     for (const lamp of this.lamps) {
       const { row, side } = lamp.userData;
-      // Lamps travel toward the camera and wrap around into the fog.
-      let z = -row * LAMP_SPACING + (L.travel % LAMP_SPACING) + 4;
-      if (z > 4) z -= span;
+      // Lamps recede with the ground; they wrap from deep fog to behind the camera.
+      let z = -row * LAMP_SPACING - (L.travel % LAMP_SPACING) + 7.5;
+      if (z < 7.5 - span) z += span;
       lamp.position.z = z;
       const i = row * 2 + (side > 0 ? 1 : 0);
       fu.uLamps.value[i].set(side * LAMP_X, z);

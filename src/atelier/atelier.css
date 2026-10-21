@@ -492,6 +492,85 @@ a {
   color: var(--ink);
 }
 
+.swatches--patterns .swatch__chip {
+  background-color: #1a1d26;
+  background-size: 9px 9px;
+}
+
+.swatch__chip--chalk {
+  background-image: repeating-linear-gradient(90deg, transparent 0 5px, rgba(255, 255, 255, 0.55) 5px 6px);
+}
+
+.swatch__chip--glen {
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 3px, rgba(255, 255, 255, 0.3) 3px 4px),
+    repeating-linear-gradient(90deg, transparent 0 3px, rgba(255, 255, 255, 0.3) 3px 4px);
+}
+
+.swatch__chip--herringbone {
+  background-image: repeating-linear-gradient(45deg, transparent 0 2px, rgba(255, 255, 255, 0.28) 2px 3px);
+}
+
+.hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin: 1.6rem 0 0;
+  font-size: 0.62rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--paper-faint);
+  opacity: 0;
+  transition: opacity 0.9s var(--ease-out) 0.5s;
+}
+
+.chapter.is-active .hint {
+  opacity: 1;
+}
+
+.hint__icon {
+  width: 22px;
+  height: 1px;
+  background: var(--gold);
+  position: relative;
+}
+
+.hint__icon::before,
+.hint__icon::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border-top: 1px solid var(--gold);
+}
+
+.hint__icon::before {
+  left: -1px;
+  border-left: 1px solid var(--gold);
+  transform: rotate(-45deg);
+}
+
+.hint__icon::after {
+  right: -1px;
+  border-right: 1px solid var(--gold);
+  transform: rotate(45deg);
+}
+
+html.can-drag .story {
+  cursor: grab;
+}
+
+html.can-drag .story:active {
+  cursor: grabbing;
+}
+
+@media (pointer: coarse) {
+  .hint {
+    display: none;
+  }
+}
+
 /* ------------------------------------------------------------------ footer */
 .footer {
   position: relative;

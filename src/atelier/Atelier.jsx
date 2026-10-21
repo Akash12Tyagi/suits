@@ -9,13 +9,13 @@ import "@fontsource/jost/300.css";
 import "@fontsource/jost/400.css";
 import "@fontsource/jost/500.css";
 import "./atelier.css";
-import { BRAND, CHAPTERS, CONTACT, FOOTER, SWATCHES } from "./content.js";
+import { BRAND, CHAPTERS, CONTACT, FOOTER, PATTERNS, SWATCHES } from "./content.js";
 import { setupScroll, supportsWebGL } from "./scroll.js";
 
 const pad = (n) => String(n).padStart(2, "0");
 
-function Chapter({ chapter, index, active, colour, onColour }) {
-  const { side, eyebrow, title, body, spec, swatches, cta } = chapter;
+function Chapter({ chapter, index, active, colour, onColour, pattern, onPattern }) {
+  const { side, eyebrow, title, body, spec, swatches, patterns, drag, cta } = chapter;
   return (
     <section
       className={`chapter chapter--${side}${active ? " is-active" : ""}`}
@@ -68,6 +68,28 @@ function Chapter({ chapter, index, active, colour, onColour }) {
               ))}
             </div>
           )}
+          {patterns && (
+            <div className="swatches swatches--patterns" role="group" aria-label="Choose a cloth">
+              {PATTERNS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="swatch"
+                  aria-pressed={pattern === p.id}
+                  onClick={() => onPattern(p.id)}
+                >
+                  <span className={`swatch__chip swatch__chip--${p.id}`} />
+                  <span className="swatch__label">{p.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {drag && (
+            <p className="hint" aria-hidden="true">
+              <span className="hint__icon" />
+              Drag to turn the figure
+            </p>
+          )}
           {cta && (
             <a className="cta" href={CONTACT}>
               {cta}
@@ -93,6 +115,7 @@ export default function Atelier() {
   const [ready, setReady] = useState(false);
   const [fallback, setFallback] = useState(false);
   const [colour, setColour] = useState("midnight");
+  const [pattern, setPattern] = useState("plain");
 
   useEffect(() => {
     document.title = `${BRAND} — Tailoring for the few`;
@@ -131,6 +154,7 @@ export default function Atelier() {
             return;
           }
           stageApi.current = stage;
+          if (import.meta.env.DEV) window.__atelier = stage;
           const tick = () => stage.tick();
           gsap.ticker.add(tick);
           const tl = buildChoreography(stage, storyEl.current, {
@@ -145,8 +169,8 @@ export default function Atelier() {
             onLeave: () => stage.setPaused(true),
             onEnterBack: () => stage.setPaused(false),
           });
-          const intro = gsap.to(stage.mannequin.uniforms.uReveal, {
-            value: 1,
+          const intro = gsap.to(stage.hero.look, {
+            scan: 1,
             duration: reducedMotion ? 0.01 : 2.6,
             delay: 0.25,
             ease: "power2.inOut",
@@ -174,6 +198,16 @@ export default function Atelier() {
       scroll.destroy();
     };
   }, []);
+
+  // Turning the figure by hand is offered in the silhouette chapter only.
+  useEffect(() => {
+    stageApi.current?.setDragEnabled(Boolean(CHAPTERS[active]?.drag));
+  }, [active, ready]);
+
+  const choosePattern = (id) => {
+    setPattern(id);
+    stageApi.current?.setPattern(id);
+  };
 
   const chooseColour = (id) => {
     setColour(id);
@@ -223,6 +257,8 @@ export default function Atelier() {
             active={active === i}
             colour={colour}
             onColour={chooseColour}
+            pattern={pattern}
+            onPattern={choosePattern}
           />
         ))}
       </main>

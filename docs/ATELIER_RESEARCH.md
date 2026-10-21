@@ -151,3 +151,49 @@ draw to a canvas from a scrubbed playhead. The chapter timing in §6 stays the s
 * Lenis README (GSAP ScrollTrigger section) — https://cdn.jsdelivr.net/gh/darkroomengineering/lenis@1.3.26/README.md
 * GSAP 3.15 README (licence: free incl. all plugins) — https://cdn.jsdelivr.net/npm/gsap@3.15.0/README.md
 * Three.js r186 source (`ShaderLib/meshphysical.glsl.js`, `MeshPhysicalMaterial` sheen)
+
+---
+
+## 10. Second pass: realism (character, cloth, motion) and four new chapters
+
+**Character.** The wearer is now a 20-bone skeleton (`rig.js`) laid over the body
+tubes, with a sculpted mannequin head (brow, sockets, nose, lips, jaw and ears
+deformed from a sphere) and jointed hands (palm, three phalanges per finger, thumb).
+A photoreal human face can't be made convincingly in procedural real-time 3D, and a
+near-miss would read as uncanny. Fine tailoring houses dress lacquered mannequins, and the
+reference keeps faces in shadow, so the figure is an articulated atelier mannequin.
+It starts as the glowing hologram from the opening shot and turns solid in
+"Made to Be Worn".
+
+**Cloth.** Garments are skinned to the skeleton (detached bind mode, bind = identity,
+the root bone carries world placement). Each piece now has real thickness: an inner
+shell plus edge strips with their own across-the-edge normals and an un-bumped
+material, so cut edges never sparkle. Jackets and waistcoats show the lining on the
+inner shell. Elbow and knee compression creases rise with the measured joint bend,
+the jacket skirt lags the pelvis through a damped spring, and baked contact
+shading darkens armpits, inner sleeves and inner thighs. A matching depth material makes
+the shadows follow every fold.
+
+**Motion.** `motion.js` blends idle (breathing, weight shift, head drift), a walk
+and a gesture. The walk is a gait cycle on a treadmill: each foot is placed by
+analytic two-bone IK with a forward knee pole, travels backward at exactly the street's
+speed while planted (no foot sliding), and rolls through heel-strike and toe-off.
+The pelvis bobs twice per stride, sways and rotates, the chest counter-rotates, and
+the arms swing opposite the legs with a lagging elbow. The cuff gesture uses arm IK
+plus a forearm twist so palm orientation is controlled.
+
+**Proportions corrected** while deriving the gait: the hip joint moved up 16.5 cm
+(a 1.83 m man has his hip joint about 0.93 m off the floor), the jacket hem now covers the seat
+(-0.30), the waistcoat ends just below the waistband, and the button stance sits at
+the natural waist.
+
+**Light.** Soft spot-light shadows (key, street lamp, cutting-table pendant) land on a
+shadow catcher over the custom floor. Depth of field (BokehPass) is used only in the
+cuff macro, where every piece is in place so the depth override is exact.
+
+**New chapters:** *The Measure* (three tapes wind on), *The Cutting Table* (every
+unrolled piece lies flat on its pile with chalk outlines, the shears follow the
+jacket front, a pendant lamp lights the table, and the pieces lift off the table in the
+following chapters), *Made to Be Worn* (hologram to solid, cuff gesture), and *The Cloth
+Library* (plain, chalk stripe, Glen check and herringbone, drawn procedurally and
+applied to the suit). *The Cut* now lets you drag to turn the figure (mouse/pen).

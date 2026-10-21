@@ -58,7 +58,9 @@ export class Tube {
    * @param {Array} o.keys            [[t, rx, rz, zc]] cross-section keyframes
    * @param {number} o.outward        +1/-1: which way X should point (limbs), 0 = keep
    */
-  constructor({ origin, axis, length = 1, keys, outward = 0, t0, t1 }) {
+  constructor({ origin, axis, length = 1, keys, outward = 0, t0, t1, kind = "torso", side = 0 }) {
+    this.kind = kind;
+    this.side = side;
     this.origin = origin.clone();
     this.axis = axis.clone().normalize();
     this.length = length;
@@ -181,7 +183,7 @@ export class Tube {
  */
 export const FLOOR_Y = -1.05;
 export const SHOULDER = new THREE.Vector3(0.168, 0.408, 0.0);
-export const HIP = new THREE.Vector3(0.092, -0.31, 0.0);
+export const HIP = new THREE.Vector3(0.092, -0.145, 0.0);
 
 // Limb names follow the wearer: the wearer faces +Z, so their left is +X.
 export function createBody() {
@@ -196,10 +198,11 @@ export function createBody() {
         [0.0, 0.153, 0.111, 0.006],
         [0.17, 0.164, 0.119, 0.013],
         [0.31, 0.178, 0.123, 0.016],
-        [0.405, 0.19, 0.112, 0.008],
-        [0.455, 0.2, 0.098, 0.0],
-        [0.492, 0.162, 0.083, 0.0],
-        [0.522, 0.09, 0.07, 0.003],
+        [0.4, 0.19, 0.113, 0.008],
+        [0.44, 0.198, 0.103, 0.003],
+        [0.47, 0.188, 0.092, 0.0],
+        [0.497, 0.152, 0.081, 0.0],
+        [0.522, 0.092, 0.07, 0.003],
         [0.545, 0.064, 0.061, 0.006],
         [0.64, 0.058, 0.056, 0.008],
       ],
@@ -210,6 +213,8 @@ export function createBody() {
     const start = SHOULDER.clone().setX(SHOULDER.x * side);
     const dir = new THREE.Vector3(0.24 * side, -1, 0.05).normalize();
     body[side > 0 ? "armL" : "armR"] = new Tube({
+      kind: "arm",
+      side,
       origin: start,
       axis: dir,
       length: 0.62,
@@ -227,16 +232,19 @@ export function createBody() {
     const hip = HIP.clone().setX(HIP.x * side);
     const legDir = new THREE.Vector3(0.012 * side, -1, 0).normalize();
     body[side > 0 ? "legL" : "legR"] = new Tube({
+      kind: "leg",
+      side,
       origin: hip,
       axis: legDir,
       length: hip.y - FLOOR_Y - 0.035,
       outward: side,
       keys: [
-        [-0.08, 0.112, 0.118, 0],
-        [0.0, 0.106, 0.112, 0],
-        [0.3, 0.092, 0.096, 0.004],
-        [0.55, 0.082, 0.084, 0.006],
-        [1.0, 0.08, 0.082, 0.004],
+        [-0.08, 0.118, 0.124, 0],
+        [0.0, 0.112, 0.118, 0],
+        [0.25, 0.098, 0.102, 0.004],
+        [0.5, 0.084, 0.086, 0.006],
+        [0.75, 0.08, 0.082, 0.004],
+        [1.0, 0.078, 0.08, 0.004],
       ],
     });
   }

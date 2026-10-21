@@ -5,10 +5,11 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { createBody } from "./body.js";
-import { Suit } from "./suit.js";
-import { Mannequin } from "./mannequin.js";
+import { BokehPass } from "three/addons/postprocessing/BokehPass.js";
+import { createBody, FLOOR_Y } from "./body.js";
+import { Figure } from "./figure.js";
 import { Atmosphere } from "./atmosphere.js";
+import { Workshop } from "./workshop.js";
 import { cottonTexture, silkTexture, woolTexture } from "./textures.js";
 
 const FOG = "#07080b";
@@ -42,7 +43,7 @@ const FinishShader = {
 /**
  * Owns the renderer, scene, camera and every 3D object. The scroll timeline
  * (choreography.js) only writes plain numbers into `stage.cam`, `stage.look`,
- * the suits' piece states and so on; `tick` turns those into pixels.
+ * the figures' piece and motion states and so on; `tick` turns those into pixels.
  */
 export class Stage {
   constructor(container, { reducedMotion = false } = {}) {
@@ -61,6 +62,8 @@ export class Stage {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
     renderer.setClearColor(FOG, 1);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.domElement.setAttribute("aria-hidden", "true");
     container.appendChild(renderer.domElement);
     this.renderer = renderer;
@@ -76,22 +79,23 @@ export class Stage {
     scene.environment = this.envTex;
     scene.environmentIntensity = 0.22;
 
-    this.camera = new THREE.PerspectiveCamera(30, 1, 0.05, 80);
+    this.camera = new THREE.PerspectiveCamera(30, 1, 0.03, 80);
     // Plain numbers the timeline animates. sx/sy shift the framing so the
     // figure sits opposite the chapter text without changing perspective.
     this.cam = { px: 0.25, py: 0.18, pz: 3.3, tx: 0, ty: 0.02, tz: 0, fov: 30, sx: 0.17, sy: 0, roll: 0 };
     this.look = {
       exposure: 1,
-      mannequin: 1,
       turn: 0,
       street: 0,
       studio: 1,
       othersReveal: 0,
       approach: 0,
       fade: 1,
+      dof: 0,
     };
     this.pointer = new THREE.Vector2();
     this.pointerSmooth = new THREE.Vector2();
+    this.drag = { enabled: false, active: false, angle: 0, vel: 0, lastX: 0 };
 
     this._lights();
 
@@ -99,6 +103,7 @@ export class Stage {
     this.shared = {
       uTime: { value: 0 },
       uFlutter: { value: reducedMotion ? 0 : 1 },
+      uAOStrength: { value: 1 },
       textures: {
         wool: woolTexture(anisotropy),
         cotton: cottonTexture(anisotropy),
@@ -107,29 +112,30 @@ export class Stage {
     };
 
     this.body = createBody();
-    this.mannequin = new Mannequin(this.body);
-    scene.add(this.mannequin.group);
-
-    this.hero = new Suit(this.body, this.shared, { colourway: "midnight", detail: "full" });
+    this.hero = new Figure(this.body, this.shared, { colourway: "midnight", detail: "full" });
     scene.add(this.hero.root);
+    if (reducedMotion) this.hero.motion.state.breathe = 0;
 
     // The procession: three more finished suits, walking out of the fog.
     this.others = [
-      { colourway: "flannel", x: -1.15, z: -0.75, phase: 1.3 },
-      { colourway: "ivory", x: 1.2, z: -0.55, phase: 2.6 },
-      { colourway: "bordeaux", x: 2.3, z: -1.7, phase: 0.6 },
+      { colourway: "flannel", x: -1.15, z: -0.75, phase: 0.31 },
+      { colourway: "ivory", x: 1.2, z: -0.55, phase: 0.62 },
+      { colourway: "bordeaux", x: 2.3, z: -1.7, phase: 0.14 },
     ].map((o) => {
-      const s = new Suit(this.body, this.shared, { colourway: o.colourway, detail: "lite" });
-      for (const p of s.pieces) Object.assign(p.state, { fly: 1, fold: 1, reveal: 1 });
-      s.shoeState.reveal = 1;
-      s.hatState.drop = 1;
-      s.walk.amount = 1;
-      s.walk.phase = o.phase;
-      s.home = new THREE.Vector3(o.x, 0, o.z);
-      s.root.visible = false;
-      scene.add(s.root);
-      return s;
+      const f = new Figure(this.body, this.shared, { colourway: o.colourway, detail: "lite" });
+      for (const p of f.pieces) Object.assign(p.state, { fly: 1, fold: 1, reveal: 1 });
+      f.shoeState.reveal = 1;
+      f.hatState.drop = 1;
+      f.motion.state.walk = reducedMotion ? 0 : 1;
+      f.motion.state.phase = o.phase;
+      f.home = new THREE.Vector3(o.x, 0, o.z);
+      f.root.visible = false;
+      scene.add(f.root);
+      return f;
     });
+
+    this.workshop = new Workshop(this.hero, { anisotropy });
+    scene.add(this.workshop.group);
 
     this.atmosphere = new Atmosphere({
       fogColor: FOG,
@@ -138,26 +144,48 @@ export class Stage {
     });
     scene.add(this.atmosphere.group);
 
+    // Shadows land on the floor through a transparent catcher.
+    const catcher = new THREE.Mesh(
+      new THREE.PlaneGeometry(40, 40),
+      new THREE.ShadowMaterial({ color: 0x000000, opacity: 0.62 })
+    );
+    catcher.rotation.x = -Math.PI / 2;
+    catcher.position.y = FLOOR_Y + 0.001;
+    catcher.receiveShadow = true;
+    scene.add(catcher);
+
     this._composer();
     this._resize = this._resize.bind(this);
     this._onPointer = this._onPointer.bind(this);
+    this._onDown = this._onDown.bind(this);
+    this._onUp = this._onUp.bind(this);
     window.addEventListener("resize", this._resize);
     window.addEventListener("pointermove", this._onPointer, { passive: true });
+    window.addEventListener("pointerdown", this._onDown);
+    window.addEventListener("pointerup", this._onUp);
+    window.addEventListener("pointercancel", this._onUp);
     this._resize();
 
     this.timer = new THREE.Timer();
     this.timer.connect(document);
     this.time = 0;
     this.running = true;
-    this.paused = false;
   }
 
   _lights() {
     const s = this.scene;
-    // Overhead key: the visible light shaft.
+    const shadowSize = this.lowPower ? 1024 : 2048;
+    // Overhead key: the visible light shaft, and the main shadow caster.
     const key = new THREE.SpotLight("#fff4e6", 13, 9, 0.42, 0.75, 1.4);
     key.position.set(0.15, 3.6, 0.9);
     key.target.position.set(0, -0.1, 0);
+    key.castShadow = true;
+    key.shadow.mapSize.set(shadowSize, shadowSize);
+    key.shadow.bias = -0.00025;
+    key.shadow.normalBias = 0.012;
+    key.shadow.camera.near = 1.2;
+    key.shadow.camera.far = 7;
+    key.shadow.radius = 4;
     s.add(key, key.target);
     // Cool rims from behind, which pick out the sheen on the wool.
     const rimL = new THREE.SpotLight("#a9c1ff", 22, 9, 0.5, 0.9, 1.3);
@@ -167,16 +195,19 @@ export class Stage {
     rimR.position.set(2.5, 1.2, -2.0);
     rimR.target.position.set(0, -0.2, 0);
     s.add(rimL, rimL.target, rimR, rimR.target);
-    // Low frontal fill so the faces of the cloth never fall to pure black.
     const fill = new THREE.DirectionalLight("#9aa6c2", 0.35);
     fill.position.set(0.5, 0.4, 3);
     s.add(fill);
     const hemi = new THREE.HemisphereLight("#5c6577", "#050506", 0.25);
     s.add(hemi);
-    // Warm street key, only during the procession.
-    const street = new THREE.SpotLight("#ffb874", 0, 14, 0.75, 0.9, 1.2);
-    street.position.set(2.8, 2.6, 2.5);
-    street.target.position.set(0.4, -0.4, -0.5);
+    // Warm street lamp key during the procession: long shadows on wet stone.
+    const street = new THREE.SpotLight("#ffb874", 0, 16, 0.7, 0.85, 1.2);
+    street.position.set(3.2, 2.9, 1.2);
+    street.target.position.set(0.4, -0.6, -0.8);
+    street.castShadow = !this.lowPower;
+    street.shadow.mapSize.set(1024, 1024);
+    street.shadow.bias = -0.0004;
+    street.shadow.normalBias = 0.02;
     s.add(street, street.target);
     this.lights = { key, rimL, rimR, fill, hemi, street };
   }
@@ -184,6 +215,9 @@ export class Stage {
   _composer() {
     const composer = new EffectComposer(this.renderer);
     composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bokeh = new BokehPass(this.scene, this.camera, { focus: 0.5, aperture: 0.02, maxblur: 0.008 });
+    this.bokeh.enabled = false;
+    composer.addPass(this.bokeh);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.38, 0.55, 0.9);
     this.bloom.enabled = !this.lowPower || window.innerWidth > 900;
     composer.addPass(this.bloom);
@@ -207,13 +241,48 @@ export class Stage {
 
   _onPointer(e) {
     this.pointer.set((e.clientX / window.innerWidth) * 2 - 1, (e.clientY / window.innerHeight) * 2 - 1);
+    const d = this.drag;
+    if (d.active) {
+      const dx = e.clientX - d.lastX;
+      d.lastX = e.clientX;
+      d.vel = (dx / window.innerWidth) * 4;
+      d.angle += d.vel;
+    }
   }
 
-  /** Where the hero's left cuff is, for the close-up camera. */
+  // Drag to turn the figure (mouse and pen only, so touch keeps scrolling).
+  _onDown(e) {
+    if (!this.drag.enabled || e.pointerType === "touch") return;
+    if (e.target.closest && e.target.closest("a, button, input")) return;
+    this.drag.active = true;
+    this.drag.lastX = e.clientX;
+  }
+
+  _onUp() {
+    this.drag.active = false;
+  }
+
+  setDragEnabled(on) {
+    this.drag.enabled = on;
+    if (!on) this.drag.active = false;
+    document.documentElement.classList.toggle("can-drag", on);
+  }
+
+  setPattern(kind) {
+    const tex = this.workshop.patternFor(kind);
+    if (tex) this.hero.setPattern(tex);
+    this.workshop.highlight(kind);
+  }
+
+  /** Where the hero's left cuff is in its idle pose, for the close-up camera. */
   cuffShot() {
-    const { tube, theta } = this.hero.cuffArm;
-    const at = tube.point(theta, 0.83, 0.03);
-    const n = tube.outwardAt(theta, 0.83, 0.03);
+    const h = this.hero;
+    h.update(0, 1 / 60);
+    const { tube, theta } = h.cuffArm;
+    const bone = h.rig.bones.foreArmL;
+    const local = tube.point(theta, 0.83, 0.03).sub(h.rig.bind.foreArmL);
+    const at = bone.localToWorld(local.clone());
+    const n = tube.outwardAt(theta, 0.83, 0.03).applyQuaternion(bone.getWorldQuaternion(new THREE.Quaternion()));
     const pos = at.clone().addScaledVector(n, 0.42).add(new THREE.Vector3(0.0, 0.1, 0.24));
     return { pos, at };
   }
@@ -252,6 +321,15 @@ export class Stage {
     const sy = portrait ? 0.13 : c.sy;
     cam.setViewOffset(w, h, -sx * w, sy * h, w, h);
     cam.updateProjectionMatrix();
+
+    const dof = this.look.dof;
+    this.bokeh.enabled = dof > 0.01 && !this.lowPower;
+    if (this.bokeh.enabled) {
+      const u = this.bokeh.uniforms;
+      u.focus.value = pos.distanceTo(target);
+      u.aperture.value = 0.028 * dof;
+      u.maxblur.value = 0.009 * dof;
+    }
   }
 
   tick() {
@@ -263,32 +341,39 @@ export class Stage {
     const L = this.look;
 
     this.shared.uTime.value = t;
-    this.mannequin.uniforms.uFade.value = L.mannequin;
-    this.mannequin.update(t);
 
-    this.hero.root.rotation.y = L.turn;
-    this.hero.update(t);
+    // Drag inertia; the figure settles back when dragging is switched off.
+    const d = this.drag;
+    if (!d.active) {
+      d.angle += d.vel;
+      d.vel *= 0.92;
+      if (!d.enabled) d.angle *= 0.94;
+    }
+    this.hero.place(0, 0, 0, L.turn + d.angle);
+    this.hero.update(t, dt);
+    const ground = this.hero.motion.out.groundSpeed;
 
     const oRev = L.othersReveal;
-    for (const s of this.others) {
-      s.root.visible = oRev > 0.01;
-      if (!s.root.visible) continue;
-      for (const p of s.pieces) p.state.reveal = oRev;
-      s.root.position.set(s.home.x, 0, THREE.MathUtils.lerp(s.home.z - 5, s.home.z, L.approach));
-      s.walk.amount = this.reducedMotion ? 0 : 1;
-      s.update(t);
+    for (const f of this.others) {
+      f.root.visible = oRev > 0.01;
+      if (!f.root.visible) continue;
+      f.look.reveal = oRev;
+      f.place(f.home.x, 0, THREE.MathUtils.lerp(f.home.z - 4, f.home.z, L.approach), 0);
+      f.update(t, dt);
     }
+
+    this.workshop.update(t);
 
     const A = this.atmosphere.look;
     A.street = L.street;
     A.beam = L.studio;
     A.dust = L.studio;
     A.pool = L.studio;
-    this.atmosphere.update(t, dt);
+    this.atmosphere.update(t, dt, this.reducedMotion ? 0 : Math.max(ground, oRev > 0.01 ? 0.95 * L.street : 0));
 
     const li = this.lights;
     li.key.intensity = 13 * (0.35 + 0.65 * L.studio);
-    li.street.intensity = 22 * L.street;
+    li.street.intensity = 26 * L.street;
     li.rimL.color.set("#a9c1ff").lerp(new THREE.Color("#ffc58e"), L.street * 0.5);
 
     this.renderer.toneMappingExposure = 1.05 * L.exposure;
@@ -308,10 +393,14 @@ export class Stage {
     this.running = false;
     window.removeEventListener("resize", this._resize);
     window.removeEventListener("pointermove", this._onPointer);
+    window.removeEventListener("pointerdown", this._onDown);
+    window.removeEventListener("pointerup", this._onUp);
+    window.removeEventListener("pointercancel", this._onUp);
+    document.documentElement.classList.remove("can-drag");
     this.timer.dispose();
     this.hero.dispose();
-    this.others.forEach((s) => s.dispose());
-    this.mannequin.dispose();
+    this.others.forEach((f) => f.dispose());
+    this.workshop.dispose();
     this.atmosphere.dispose();
     Object.values(this.shared.textures).forEach(({ map, bump }) => {
       map.dispose();
