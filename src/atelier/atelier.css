@@ -92,6 +92,37 @@ a {
   animation: breathe 2.4s ease-in-out infinite;
 }
 
+.loader {
+  grid-auto-flow: row;
+  align-content: center;
+  gap: 1.4rem;
+  justify-items: center;
+}
+
+.loader__bar {
+  position: relative;
+  width: min(14rem, 50vw);
+  height: 1px;
+  background: var(--hair);
+  overflow: hidden;
+}
+
+.loader__bar > span {
+  position: absolute;
+  inset: 0;
+  background: var(--gold);
+  transform-origin: left;
+  transition: transform 0.6s var(--ease-out);
+}
+
+.loader__label {
+  font-size: 0.6rem;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--paper-faint);
+  min-height: 1em;
+}
+
 @keyframes breathe {
   50% {
     opacity: 0.35;

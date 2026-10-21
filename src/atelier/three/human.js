@@ -152,11 +152,21 @@ function paintSkin(geo, d) {
   geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
 }
 
+/*
+ * Sculpt resolution (cell size in metres) per quality level:
+ * 2 close-ups and the lookbook, 1 mid-distance, 0 figures seen from afar.
+ */
+const STEP = {
+  head: [0.0038, 0.003, 0.0025],
+  hair: [0.004, 0.0032, 0.0027],
+  hand: [0.0031, 0.0025, 0.002],
+};
+
 const headCache = new Map();
-export function headGeometry(d, quality = 1) {
+export function headGeometry(d, quality = 2) {
   const key = `${d.name}-${quality}`;
   if (headCache.has(key)) return headCache.get(key);
-  const step = quality > 0.5 ? 0.0024 : 0.0034;
+  const step = STEP.head[quality];
   const geo = surfaceNets(
     headField(d),
     new THREE.Box3(V3(-0.095, -0.205, -0.125), V3(0.095, 0.13, 0.13)),
@@ -217,13 +227,13 @@ function hairField(style) {
 }
 
 const hairCache = new Map();
-export function hairGeometry(style, quality = 1) {
+export function hairGeometry(style, quality = 2) {
   const key = `${style}-${quality}`;
   if (hairCache.has(key)) return hairCache.get(key);
   const geo = surfaceNets(
     hairField(style),
     new THREE.Box3(V3(-0.1, -0.09, -0.13), V3(0.1, 0.16, 0.13)),
-    quality > 0.5 ? 0.0026 : 0.0036
+    STEP.hair[quality]
   );
   geo.userData.shared = true;
   hairCache.set(key, geo);
@@ -419,9 +429,9 @@ function handJoints() {
   return { segs, bones };
 }
 
-let handCache = null;
-export function handGeometry() {
-  if (handCache) return handCache;
+const handCache = new Map();
+export function handGeometry(quality = 2) {
+  if (handCache.has(quality)) return handCache.get(quality);
   const { segs, bones } = handJoints();
   const parts = [
     { op: "add", d: roundBox(V3(0, -0.056, 0.0), V3(0.0125, 0.046, 0.041), 0.011), k: 0 },
@@ -433,7 +443,7 @@ export function handGeometry() {
     ...FINGERS.map((f) => ({ op: "add", d: sphere(V3(0.006, f.y + 0.002, f.z), 0.008), k: 0.006 })),
   ];
   const field = sculpt(parts, roundBox(V3(0, -0.08, 0.015), V3(0.03, 0.12, 0.07), 0.02));
-  const geo = surfaceNets(field, new THREE.Box3(V3(-0.062, -0.218, -0.064), V3(0.036, 0.06, 0.104)), 0.0017);
+  const geo = surfaceNets(field, new THREE.Box3(V3(-0.062, -0.218, -0.064), V3(0.036, 0.06, 0.104)), STEP.hand[quality]);
 
   // Skin weights: inverse-distance to each bone's segment.
   const pos = geo.attributes.position;
@@ -486,13 +496,14 @@ export function handGeometry() {
   }
   geo.userData.shared = true;
   right.userData.shared = true;
-  handCache = { left: geo, right, bones };
-  return handCache;
+  const hands = { left: geo, right, bones };
+  handCache.set(quality, hands);
+  return hands;
 }
 
 /** Bones for one hand; returns { root, list, fingers, thumb, side }. */
 export function handBones(side) {
-  const { bones } = handGeometry();
+  const { bones } = handJoints();
   const list = bones.map(() => new THREE.Bone());
   bones.forEach(([parent, at], i) => {
     const local = at.clone();
@@ -538,22 +549,27 @@ function unpack({ attrs, index }) {
 }
 
 /**
- * Sculpt every head, hair style and the hands for a cast in parallel workers,
- * filling the same caches headGeometry / hairGeometry / handGeometry read.
- * Falls back to sculpting on the main thread if workers are unavailable.
+ * Sculpt every head, hair style and hand set a scene needs — `needs` is a list
+ * of [castMember, quality] — in parallel workers, filling the caches
+ * headGeometry / hairGeometry / handGeometry read. Falls back to the main
+ * thread if workers are unavailable. onProgress(done, total) reports progress.
  */
-export async function prepareCast(defs, quality = 1) {
+export async function prepareCast(needs, onProgress = () => {}) {
   const jobs = [];
-  const seenHair = new Set();
-  for (const d of defs) {
-    if (!headCache.has(`${d.name}-${quality}`)) jobs.push({ kind: "head", def: d, quality, key: `${d.name}-${quality}` });
-    if (!seenHair.has(d.hairStyle) && !hairCache.has(`${d.hairStyle}-${quality}`)) {
-      seenHair.add(d.hairStyle);
-      jobs.push({ kind: "hair", style: d.hairStyle, quality, key: `${d.hairStyle}-${quality}` });
-    }
+  const queued = new Set();
+  const queue = (key, job) => {
+    if (queued.has(key)) return;
+    queued.add(key);
+    jobs.push({ ...job, key });
+  };
+  for (const [d, quality] of needs) {
+    if (!headCache.has(`${d.name}-${quality}`)) queue(`head:${d.name}-${quality}`, { kind: "head", def: d, quality, cacheKey: `${d.name}-${quality}` });
+    if (!hairCache.has(`${d.hairStyle}-${quality}`)) queue(`hair:${d.hairStyle}-${quality}`, { kind: "hair", style: d.hairStyle, quality, cacheKey: `${d.hairStyle}-${quality}` });
+    if (!handCache.has(quality)) queue(`hand:${quality}`, { kind: "hand", quality });
   }
-  if (!handCache) jobs.push({ kind: "hand" });
   if (!jobs.length) return;
+  let done = 0;
+  const tick = () => onProgress(++done, jobs.length);
 
   let workers = [];
   try {
@@ -564,9 +580,10 @@ export async function prepareCast(defs, quality = 1) {
   }
   if (!workers.length) {
     for (const j of jobs) {
-      if (j.kind === "head") headGeometry(j.def, quality);
-      else if (j.kind === "hair") hairGeometry(j.style, quality);
-      else handGeometry();
+      if (j.kind === "head") headGeometry(j.def, j.quality);
+      else if (j.kind === "hair") hairGeometry(j.style, j.quality);
+      else handGeometry(j.quality);
+      tick();
     }
     return;
   }
@@ -579,14 +596,10 @@ export async function prepareCast(defs, quality = 1) {
         const id = next++;
         const job = jobs[id];
         w.onmessage = ({ data }) => {
-          if (job.kind === "head") {
-            const geo = unpack(data.data);
-            headCache.set(job.key, geo);
-          } else if (job.kind === "hair") {
-            hairCache.set(job.key, unpack(data.data));
-          } else {
-            handCache = { left: unpack(data.data.left), right: unpack(data.data.right), bones: handJoints().bones };
-          }
+          if (job.kind === "head") headCache.set(job.cacheKey, unpack(data.data));
+          else if (job.kind === "hair") hairCache.set(job.cacheKey, unpack(data.data));
+          else handCache.set(job.quality, { left: unpack(data.data.left), right: unpack(data.data.right), bones: handJoints().bones });
+          tick();
           step();
         };
         w.onerror = reject;

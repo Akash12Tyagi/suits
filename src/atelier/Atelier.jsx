@@ -116,6 +116,7 @@ export default function Atelier() {
   const [fallback, setFallback] = useState(false);
   const [colour, setColour] = useState("midnight");
   const [pattern, setPattern] = useState("plain");
+  const [loading, setLoading] = useState({ label: "Opening the atelier", value: 0.05 });
 
   useEffect(() => {
     document.title = `${BRAND} — Tailoring for the few`;
@@ -144,7 +145,13 @@ export default function Atelier() {
       // heads and hands are sculpted in workers before the stage is built.
       Promise.all([import("./three/Stage.js"), import("./three/choreography.js")])
         .then(async (mods) => {
-          await mods[0].prepareStage();
+          setLoading({ label: "Sculpting the cast", value: 0.1 });
+          await mods[0].prepareStage((done, total) =>
+            setLoading({ label: "Sculpting the cast", value: 0.1 + 0.6 * (done / total) })
+          );
+          setLoading({ label: "Cutting the cloth", value: 0.75 });
+          // Let the label paint before the synchronous build.
+          await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
           return mods;
         })
         .then(([{ Stage }, { buildChoreography }]) => {
@@ -166,6 +173,9 @@ export default function Atelier() {
             chapters: CHAPTERS.length,
             reducedMotion,
           });
+          setLoading({ label: "Lighting the set", value: 0.92 });
+          stage.warmUp(tl, CHAPTERS.length);
+          ScrollTrigger.update();
           // Stop drawing once the story has scrolled away under the footer.
           const pause = ScrollTrigger.create({
             trigger: storyEl.current,
@@ -232,8 +242,12 @@ export default function Atelier() {
   return (
     <div className={`atelier${ready ? " is-ready" : ""}${fallback ? " is-fallback" : ""}`}>
       <div className="stage" ref={stageEl} />
-      <div className="loader" aria-hidden={ready}>
+      <div className="loader" aria-hidden={ready} role="status">
         <span className="loader__mark">{BRAND}</span>
+        <span className="loader__bar" aria-hidden="true">
+          <span style={{ transform: `scaleX(${ready ? 1 : loading.value})` }} />
+        </span>
+        <span className="loader__label">{fallback ? "" : loading.label}</span>
       </div>
 
       <header className="masthead">

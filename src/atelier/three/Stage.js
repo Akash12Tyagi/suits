@@ -18,9 +18,21 @@ import { cottonTexture, silkTexture, woolTexture } from "./textures.js";
 const FOG = "#07080b";
 const DAY = "#a9abb0"; // the lookbook studio's pale grey (before tone mapping)
 
-/** Sculpt the cast off the main thread before the stage is built. */
-export function prepareStage() {
-  return prepareCast(Object.values(CAST));
+/**
+ * Sculpt the cast off the main thread before the stage is built: the hero and
+ * the lookbook models in close-up quality, the procession at distance quality.
+ */
+export function prepareStage(onProgress) {
+  return prepareCast(
+    [
+      [CAST.luca, 2],
+      [CAST.kenji, 2],
+      [CAST.kenji, 0],
+      [CAST.theo, 0],
+      [CAST.marcus, 0],
+    ],
+    onProgress
+  );
 }
 
 const FinishShader = {
@@ -126,6 +138,7 @@ export class Stage {
     this.body = createBody();
     this.hero = new Figure(this.body, this.shared, { colourway: "midnight", detail: "full", cast: CAST.luca, hologram: true });
     scene.add(this.hero.root);
+    this.hero.bake();
     if (reducedMotion) this.hero.motion.state.breathe = 0;
 
     // The procession: three more finished suits, walking out of the fog.
@@ -143,7 +156,7 @@ export class Stage {
       f.home = new THREE.Vector3(o.x, 0, o.z);
       f.root.visible = false;
       scene.add(f.root);
-      return f;
+      return f.bake();
     });
 
     this.workshop = new Workshop(this.hero, { anisotropy });
@@ -184,7 +197,7 @@ export class Stage {
       f.root.visible = false;
       scene.add(f.root);
       f.at = m.at;
-      return f;
+      return f.bake();
     });
 
     this.atmosphere = new Atmosphere({
@@ -215,6 +228,13 @@ export class Stage {
     window.addEventListener("pointerup", this._onUp);
     window.addEventListener("pointercancel", this._onUp);
     this._resize();
+
+    // Adaptive resolution: hold ~60 fps by trading pixel ratio, with hysteresis.
+    this.dprMax = Math.min(window.devicePixelRatio, this.lowPower ? 1.5 : 2);
+    this.dprMin = Math.min(1, this.dprMax);
+    this.dpr = this.dprMax;
+    this.frameMs = 16.7;
+    this.dprCooldown = 0;
 
     this.timer = new THREE.Timer();
     this.timer.connect(document);
@@ -398,10 +418,29 @@ export class Stage {
     }
   }
 
+  _adaptResolution(rawDt) {
+    if (this.warming) return;
+    this.frameMs += (rawDt * 1000 - this.frameMs) * 0.05;
+    this.dprCooldown -= rawDt;
+    if (this.dprCooldown > 0) return;
+    let next = this.dpr;
+    if (this.frameMs > 19 && this.dpr > this.dprMin) next = Math.max(this.dprMin, this.dpr - 0.25);
+    else if (this.frameMs < 13 && this.dpr < this.dprMax) next = Math.min(this.dprMax, this.dpr + 0.25);
+    if (next !== this.dpr) {
+      this.dpr = next;
+      this.renderer.setPixelRatio(next);
+      this.composer.setPixelRatio(next);
+      this._resize();
+      this.dprCooldown = 2;
+    }
+  }
+
   tick() {
     if (!this.running) return;
     this.timer.update();
-    const dt = Math.min(this.timer.getDelta(), 0.05);
+    const rawDt = this.timer.getDelta();
+    const dt = Math.min(rawDt, 0.05);
+    if (rawDt > 0 && rawDt < 0.5) this._adaptResolution(rawDt);
     this.time += dt;
     const t = this.time;
     const L = this.look;
@@ -415,8 +454,10 @@ export class Stage {
       d.vel *= 0.92;
       if (!d.enabled) d.angle *= 0.94;
     }
+    // The hero is off-camera while the lookbook set is up.
+    this.hero.root.visible = L.lookbook < 0.99;
     this.hero.place(0, 0, 0, L.turn + d.angle);
-    this.hero.update(t, dt);
+    if (this.hero.root.visible) this.hero.update(t, dt);
     const ground = this.hero.motion.out.groundSpeed;
 
     const oRev = L.othersReveal;
@@ -467,6 +508,11 @@ export class Stage {
     li.hemi.groundColor.set("#050506").lerp(new THREE.Color("#8d8e92"), L.day);
     li.fill.intensity = THREE.MathUtils.lerp(0.35, 0.9, L.day);
     this.finish.uniforms.uVignette.value = 1 - 0.7 * L.day;
+    // Only lights that are on redraw their shadow maps.
+    li.key.shadow.autoUpdate = li.key.intensity > 0.5 && L.day < 0.99;
+    li.street.shadow.autoUpdate = li.street.intensity > 0.05;
+    li.day.shadow.autoUpdate = li.day.intensity > 0.05;
+    this.workshop.lamp.shadow.autoUpdate = this.workshop.lamp.intensity > 0.05;
     // Bloom belongs to the dark atelier; on a pale set it only fogs the frame.
     this.bloom.strength = 0.38 * (1 - L.day);
 
@@ -476,6 +522,30 @@ export class Stage {
 
     this._applyCamera();
     this.composer.render(dt);
+  }
+
+  /**
+   * Render each chapter's state once, behind the loader, so every shader,
+   * shadow and post-processing variant compiles before the first scroll
+   * instead of hitching mid-story.
+   */
+  warmUp(timeline, chapters) {
+    this.warming = true;
+    // Compiling doesn't care about resolution; keep the warm-up frames cheap.
+    this.renderer.setPixelRatio(0.25);
+    this.composer.setPixelRatio(0.25);
+    this._resize();
+    const end = timeline.duration();
+    for (let i = 0; i < chapters; i++) {
+      timeline.seek(Math.min(end, i + 0.3), false);
+      this.tick();
+    }
+    timeline.seek(0, false);
+    this.renderer.setPixelRatio(this.dpr);
+    this.composer.setPixelRatio(this.dpr);
+    this._resize();
+    this.warming = false;
+    this.timer.reset();
   }
 
   setPaused(paused) {

@@ -122,9 +122,9 @@ export class Character {
    * @param body         the body tubes
    * @param opts.cast    a member of CAST (characters.js)
    * @param opts.full    build the hologram and the bare body (hero only)
-   * @param opts.quality 1 for close-ups, 0 for figures seen at a distance
+   * @param opts.quality 2 close-ups, 1 mid-distance, 0 figures seen from afar
    */
-  constructor(rig, body, { cast, full = true, quality = 1 } = {}) {
+  constructor(rig, body, { cast, full = true, quality = 2 } = {}) {
     this.rig = rig;
     this.full = full;
     this.cast = cast;
@@ -177,12 +177,16 @@ export class Character {
 
     // Torso and neck always (the neck shows above the collar); limbs for the hero.
     skinnedPair(tubeSkinGeometry(rig, body.torso, full ? -0.24 : 0.36, 0.66, 64, full ? 90 : 28), rig.skeleton);
+    this.limbs = [];
     if (full) {
       for (const s of ["L", "R"]) {
+        const n = this.solids.length;
         skinnedPair(tubeSkinGeometry(rig, body["arm" + s], -0.06, 1.02, 32, 56), rig.skeleton);
         skinnedPair(tubeSkinGeometry(rig, body["leg" + s], -0.08, 0.99, 32, 64, { foot: true }), rig.skeleton);
+        this.limbs.push(...this.solids.slice(n));
       }
     }
+    this.limbsCovered = false;
 
     // Rigid parts on bones, each with its hologram twin.
     const rigid = (geo, bone, material, place) => {
@@ -219,7 +223,7 @@ export class Character {
 
     // Hands: a small skeleton of finger bones under each wrist.
     rig.root.updateMatrixWorld(true);
-    const hands = handGeometry();
+    const hands = handGeometry(quality);
     this.hands = {};
     for (const [s, side] of [
       ["L", 1],
@@ -265,6 +269,8 @@ export class Character {
     for (const m of this.glows) m.visible = showGlow;
     for (const m of this.solids) m.visible = solid > 0.004;
     for (const m of this.feet) m.visible = m.visible && feet > 0.5;
+    // Arms and legs inside finished sleeves and trousers are never seen.
+    if (this.limbsCovered) for (const m of this.limbs) m.visible = false;
   }
 
   dispose() {

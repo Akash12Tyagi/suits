@@ -22,6 +22,7 @@ uniform float uTime;
 uniform float uFlutter;
 uniform float uSpread;
 uniform float uBend;
+uniform vec4 uBends;     // elbowL, elbowR, kneeL, kneeR — for baked (merged) suits
 uniform float uThick;
 uniform vec3 uSway;
 uniform mat4 uFly;
@@ -36,6 +37,7 @@ attribute vec2 aCoord;   // θ, metres along the tube
 attribute float aCrease; // where bending gathers the cloth
 attribute float aSwing;  // how freely the hem swings
 attribute float aAO;     // baked contact shading
+attribute float aBendId; // 0: this piece's uBend; 1–4: a joint in uBends
 
 float clothWeight() {
   float w = clamp(uFold * (1.0 + uSpread) - aDelay * uSpread, 0.0, 1.0);
@@ -53,7 +55,8 @@ vec3 clothMorphPosition(float w, vec3 n) {
   p += n * flutter * uFlutter * iw * (0.25 + aDelay) * 0.018;
   // Compression folds: rings that rise as the joint bends.
   float ridge = sin(aCoord.y * 92.0 + sin(aCoord.x * 2.0 + aCoord.y * 21.0) * 1.7);
-  p += n * ridge * aCrease * uBend * 0.0042 * w;
+  float bend = aBendId < 0.5 ? uBend : aBendId < 1.5 ? uBends.x : aBendId < 2.5 ? uBends.y : aBendId < 3.5 ? uBends.z : uBends.w;
+  p += n * ridge * aCrease * bend * 0.0042 * w;
   p -= n * aShell.x * uThick;
   p += uSway * aSwing * w;
   return p;
@@ -89,6 +92,7 @@ export function createClothUniforms(shared) {
     uSpread: { value: 0.55 },
     uReveal: { value: 0 },
     uBend: { value: 0 },
+    uBends: shared.uBends ?? { value: new THREE.Vector4() },
     uThick: { value: 0 },
     uFly: { value: new THREE.Matrix4() },
     uFlyN: { value: new THREE.Matrix3() },

@@ -22,7 +22,7 @@ self.onmessage = ({ data: job }) => {
     const { data, transfer } = pack(hairGeometry(job.style, job.quality));
     self.postMessage({ id: job.id, data }, transfer);
   } else if (job.kind === "hand") {
-    const { left, right } = handGeometry();
+    const { left, right } = handGeometry(job.quality);
     const a = pack(left);
     const b = pack(right);
     self.postMessage({ id: job.id, data: { left: a.data, right: b.data } }, [...a.transfer, ...b.transfer]);

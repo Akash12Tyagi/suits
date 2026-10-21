@@ -329,15 +329,17 @@ export class Workshop {
     cord.position.set(0, 2.67, 0);
     table.add(cord);
     const lamp = new THREE.SpotLight("#ffd6a3", 0, 4.5, 0.95, 0.6, 1.4);
-    lamp.position.set(0, 1.28, 0);
-    lamp.target.position.set(0, -0.5, 0);
+    // Lights live outside the groups that get hidden: a changing light count
+    // would recompile every lit material mid-scroll.
+    lamp.position.copy(centre).add(new THREE.Vector3(0, 1.28, 0));
+    lamp.target.position.copy(centre).add(new THREE.Vector3(0, -0.5, 0));
     lamp.castShadow = true;
     lamp.shadow.mapSize.set(1024, 1024);
     lamp.shadow.bias = -0.0004;
     lamp.shadow.normalBias = 0.02;
     lamp.shadow.camera.near = 0.2;
     lamp.shadow.camera.far = 3;
-    table.add(lamp, lamp.target);
+    this.group.add(lamp, lamp.target);
     this.lamp = lamp;
 
     this.group.add(table);
@@ -414,9 +416,10 @@ export class Workshop {
       this.panels[kind] = { panel, uniforms, tex };
     });
     const light = new THREE.SpotLight("#fff1dc", 0, 4, 0.6, 0.7, 1.4);
-    light.position.set(0.3, 1.9, 1.6);
-    light.target.position.set(0, 0.4, 0);
-    rail.add(light, light.target);
+    rail.updateMatrixWorld(true);
+    light.position.copy(rail.localToWorld(new THREE.Vector3(0.3, 1.9, 1.6)));
+    light.target.position.copy(rail.localToWorld(new THREE.Vector3(0, 0.4, 0)));
+    this.group.add(light, light.target);
     this.railLight = light;
     this.rail = rail;
     this.group.add(rail);

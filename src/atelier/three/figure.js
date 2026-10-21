@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { SHOULDER } from "./body.js";
 import {
   buildPatch,
@@ -68,6 +69,9 @@ export const STYLES = {
 
 const th = (sigma, phi) => HALF - sigma * phi;
 
+// Which joint's bend drives a piece's creases, as stored per vertex once baked.
+const BEND_IDS = { elbowL: 1, elbowR: 2, kneeL: 3, kneeR: 4 };
+
 function jitter(seed) {
   const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x) - 0.5;
@@ -79,6 +83,60 @@ const _q = new THREE.Quaternion();
 const _I = new THREE.Quaternion();
 const _v = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
+
+/**
+ * One material group of a piece, finished (fold 1, in place), with the cloth
+ * thickness applied — ready to merge with the rest of its material.
+ */
+function bakeGroup(geo, group, thick, bendId) {
+  const src = geo.index.array.subarray(group.start, group.start + group.count);
+  const remap = new Map();
+  const index = new Uint32Array(src.length);
+  for (let i = 0; i < src.length; i++) {
+    let v = remap.get(src[i]);
+    if (v === undefined) {
+      v = remap.size;
+      remap.set(src[i], v);
+    }
+    index[i] = v;
+  }
+  const n = remap.size;
+  const order = new Uint32Array(n);
+  for (const [from, to] of remap) order[to] = from;
+  const out = new THREE.BufferGeometry();
+  const pick = (name) => {
+    const a = geo.attributes[name];
+    const arr = new a.array.constructor(n * a.itemSize);
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < a.itemSize; c++) arr[i * a.itemSize + c] = a.array[order[i] * a.itemSize + c];
+    }
+    return new THREE.BufferAttribute(arr, a.itemSize);
+  };
+  const pos = pick("position");
+  const nor = pick("normal");
+  const shell = pick("aShell");
+  for (let i = 0; i < n; i++) {
+    const sx = shell.getX(i);
+    const sy = shell.getY(i);
+    pos.setXYZ(i, pos.getX(i) - nor.getX(i) * sx * thick, pos.getY(i) - nor.getY(i) * sx * thick, pos.getZ(i) - nor.getZ(i) * sx * thick);
+    nor.setXYZ(i, nor.getX(i) * sy, nor.getY(i) * sy, nor.getZ(i) * sy);
+  }
+  out.setAttribute("position", pos);
+  out.setAttribute("normal", nor);
+  // At fold 1 the shader only reads the wrapped shape; share it for the others.
+  out.setAttribute("flatPos", pos);
+  out.setAttribute("ctrlPos", pos);
+  out.setAttribute("flatNormal", nor);
+  out.setAttribute("midNormal", nor);
+  for (const name of ["uv", "aCoord", "aCrease", "aSwing", "aAO", "skinIndex", "skinWeight"]) out.setAttribute(name, pick(name));
+  out.setAttribute("aDelay", new THREE.BufferAttribute(new Float32Array(n), 1));
+  const flat = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) flat[i * 2 + 1] = 1;
+  out.setAttribute("aShell", new THREE.BufferAttribute(flat, 2));
+  out.setAttribute("aBendId", new THREE.BufferAttribute(new Float32Array(n).fill(bendId), 1));
+  out.setIndex(new THREE.BufferAttribute(index, 1));
+  return out;
+}
 
 /*
  * A pattern piece. Its flight is a path through up to three poses of its
@@ -174,8 +232,9 @@ export class Figure {
    * @param opts.cast      who wears it (characters.js)
    * @param opts.style     how it is worn (STYLES)
    * @param opts.hologram  start as the glowing hologram (the story's hero)
+   * @param opts.quality   sculpt quality of head and hands (human.js), 0–2
    */
-  constructor(body, shared, { colourway = "midnight", detail = "full", cast = CAST.luca, style = STYLES.threePiece, hologram = false } = {}) {
+  constructor(body, shared, { colourway = "midnight", detail = "full", cast = CAST.luca, style = STYLES.threePiece, hologram = false, quality } = {}) {
     this.body = body;
     this.shared = shared;
     this.full = detail === "full";
@@ -185,7 +244,7 @@ export class Figure {
     this.rig = createRig(body);
     this.root.add(this.rig.root);
     this.motion = new Motion(this.rig);
-    this.character = new Character(this.rig, body, { cast, full: hologram, quality: this.full ? 1 : 0 });
+    this.character = new Character(this.rig, body, { cast, full: hologram, quality: quality ?? (this.full ? 2 : 0) });
     this.root.add(this.character.group);
 
     this.pieces = [];
@@ -194,6 +253,9 @@ export class Figure {
     this.mats = { wool: [], lining: [], tie: [], shoes: [], hat: [] };
     this.look = { reveal: 1, scan: hologram ? 0 : 1, glow: hologram ? 1 : 0, solid: hologram ? 0 : 1 };
     this.uSway = { value: new THREE.Vector3() };
+    this.uBends = { value: new THREE.Vector4() };
+    this.bakeSpecs = new Map(); // material key → params, for baking
+    this.baked = null;
     this.hand = { curl: 0.24, pinchL: 0, pinchR: 0 };
     this.colourway = colourway;
 
@@ -309,7 +371,7 @@ export class Figure {
   _piece(group, name, tube, spec, kind, opts = {}) {
     const full = this.full;
     const thickness = full ? opts.thickness ?? 0 : 0;
-    const uniforms = createClothUniforms({ ...this.shared, uSway: this.uSway });
+    const uniforms = createClothUniforms({ ...this.shared, uSway: this.uSway, uBends: this.uBends });
     uniforms.uThick.value = thickness;
     const patch = buildPatch(tube, {
       uvScale: kind === "cotton" ? 18 : 12,
@@ -320,38 +382,46 @@ export class Figure {
       ...spec,
     });
 
-    const make = (params) => clothMaterial(params, uniforms);
+    const keys = [];
+    const make = (params, key) => {
+      if (!this.bakeSpecs.has(key)) this.bakeSpecs.set(key, params);
+      keys.push(key);
+      return clothMaterial(params, uniforms);
+    };
     const outerSide = thickness > 0 ? THREE.FrontSide : THREE.DoubleSide;
     let outer;
     let inner;
     if (kind === "cotton") {
-      outer = make(this.params.cotton(outerSide));
+      outer = make(this.params.cotton(outerSide), `cotton|${outerSide}`);
       inner = outer;
     } else if (kind === "tie") {
-      outer = make(this.params.tie(outerSide));
+      outer = make(this.params.tie(outerSide), `tie|${outerSide}`);
       this.mats.tie.push(outer);
       inner = outer;
     } else if (kind === "lining") {
-      outer = make(this.params.lining(THREE.DoubleSide));
+      outer = make(this.params.lining(THREE.DoubleSide), "lining|double");
       this.mats.lining.push(outer);
       inner = outer;
     } else {
-      outer = make(this.params.wool(outerSide));
+      outer = make(this.params.wool(outerSide), `wool|${outerSide}`);
       this.mats.wool.push(outer);
       inner = outer;
       if (kind === "wool+lining" && thickness > 0) {
-        inner = make(this.params.lining(THREE.FrontSide));
+        inner = make(this.params.lining(THREE.FrontSide), "lining|front");
         this.mats.lining.push(inner);
       }
     }
     // Cut edges: the same cloth without the weave bump, which only aliases there.
     let edge = outer;
     if (thickness > 0) {
-      edge = make({ ...this.params[kind === "cotton" ? "cotton" : kind === "tie" ? "tie" : "wool"](THREE.DoubleSide), bumpMap: null, sheen: 0.25 });
+      const base = kind === "cotton" ? "cotton" : kind === "tie" ? "tie" : "wool";
+      edge = make({ ...this.params[base](THREE.DoubleSide), bumpMap: null, sheen: 0.25 }, `${base}|edge`);
       if (kind !== "cotton" && kind !== "tie") this.mats.wool.push(edge);
       if (kind === "tie") this.mats.tie.push(edge);
     }
     const materials = thickness > 0 ? [outer, inner, edge] : [outer];
+    // One key per geometry group, in group order (an unchanged inner reuses the outer's).
+    const groupKeys = thickness > 0 ? [keys[0], inner === outer ? keys[0] : keys[1], keys[keys.length - 1]] : [keys[0]];
     const mesh = new THREE.SkinnedMesh(patch.geometry, materials);
     mesh.bind(this.rig.skeleton, new THREE.Matrix4());
     mesh.bindMode = THREE.DetachedBindMode;
@@ -363,6 +433,7 @@ export class Figure {
 
     const piece = new Piece(name, patch, mesh, uniforms);
     piece.bendSource = opts.bend ?? null;
+    piece.groupKeys = groupKeys;
     piece.setHover(patch.normal.clone().multiplyScalar(0.55), new THREE.Vector3());
     this.pieces.push(piece);
     this.byName[name] = piece;
@@ -1026,9 +1097,17 @@ export class Figure {
 
     const flutter = this.shared.uFlutter.value;
     const reveal = this.look.reveal;
-    for (const p of this.pieces) {
-      if (p.bendSource) p.uniforms.uBend.value = out[p.bendSource];
-      p.apply(reveal, flutter);
+    this.uBends.value.set(out.elbowL, out.elbowR, out.kneeL, out.kneeR);
+    // Once every piece is in place, draw the merged suit instead of ~40 pieces.
+    const assembled = this.baked && this.pieces.every((p) => p.state.fly >= 0.999 && p.state.fold >= 0.999 && p.state.reveal >= 0.999);
+    if (assembled) {
+      this._showBaked(true, reveal);
+    } else {
+      if (this.baked) this._showBaked(false, reveal);
+      for (const p of this.pieces) {
+        if (p.bendSource) p.uniforms.uBend.value = out[p.bendSource];
+        p.apply(reveal, flutter);
+      }
     }
 
     const sr = this.shoeState.reveal * reveal;
@@ -1044,6 +1123,7 @@ export class Figure {
     this.hat.scale.setScalar(lerp(0.6, 1, hd));
 
     const L = this.look;
+    this.character.limbsCovered = assembled || this._limbsCovered();
     this.character.setHandPose(this.hand.curl, this.hand.pinchL, this.hand.pinchR);
     this.character.update(time, {
       scan: L.scan,
@@ -1051,6 +1131,127 @@ export class Figure {
       solid: L.solid * reveal,
       feet: sr < 0.5 ? 1 : 0,
     });
+  }
+
+  /**
+   * Merge the finished suit: every piece's geometry, with its cloth thickness
+   * baked in, grouped by material into one skinned mesh each; and every
+   * button, stitch and cufflink grouped the same way. The pieces stay for
+   * the build-up; update() swaps to the merged suit whenever all are in place.
+   */
+  bake() {
+    const buckets = new Map();
+    for (const piece of this.pieces) {
+      const geo = piece.mesh.geometry;
+      const thick = piece.uniforms.uThick.value;
+      const bendId = BEND_IDS[piece.bendSource] ?? 0;
+      geo.groups.forEach((group, gi) => {
+        const key = piece.groupKeys[gi];
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(bakeGroup(geo, group, thick, bendId));
+      });
+    }
+    const uniforms = createClothUniforms({ ...this.shared, uSway: this.uSway, uBends: this.uBends });
+    uniforms.uFold.value = 1;
+    uniforms.uFlutter = { value: 0 };
+    this.bakedReveal = uniforms.uReveal;
+    const meshes = [];
+    for (const [key, geos] of buckets) {
+      const material = clothMaterial(this.bakeSpecs.get(key), uniforms);
+      const kind = key.split("|")[0];
+      if (kind === "wool") this.mats.wool.push(material);
+      else if (kind === "lining") this.mats.lining.push(material);
+      else if (kind === "tie") this.mats.tie.push(material);
+      const mesh = new THREE.SkinnedMesh(mergeGeometries(geos), material);
+      geos.forEach((g) => g.dispose());
+      mesh.customDepthMaterial = clothDepthMaterial(uniforms);
+      meshes.push(mesh);
+    }
+
+    // Details: rigid on their bones, re-expressed in bind space and skinned
+    // wholly to that bone.
+    const details = new Map();
+    const m = new THREE.Matrix4();
+    for (const piece of this.pieces) {
+      for (const { obj, base } of piece.details) {
+        const bone = obj.parent;
+        const bi = this.rig.index[bone.name];
+        const root = new THREE.Matrix4()
+          .makeTranslation(this.rig.bind[bone.name])
+          .multiply(m.compose(obj.position, obj.quaternion, base));
+        const add = (mesh, matrix) => {
+          if (!details.has(mesh.material)) details.set(mesh.material, []);
+          const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+          g.applyMatrix4(matrix);
+          for (const name of Object.keys(g.attributes)) {
+            if (!["position", "normal", "color"].includes(name)) g.deleteAttribute(name);
+          }
+          if (!mesh.material.vertexColors) g.deleteAttribute("color");
+          const n = g.attributes.position.count;
+          const si = new Uint16Array(n * 4);
+          const sw = new Float32Array(n * 4);
+          for (let i = 0; i < n; i++) {
+            si[i * 4] = bi;
+            sw[i * 4] = 1;
+          }
+          g.setAttribute("skinIndex", new THREE.BufferAttribute(si, 4));
+          g.setAttribute("skinWeight", new THREE.BufferAttribute(sw, 4));
+          details.get(mesh.material).push(g);
+        };
+        obj.updateMatrix();
+        const visit = (o, matrix) => {
+          if (o.isInstancedMesh) {
+            const im = new THREE.Matrix4();
+            for (let i = 0; i < o.count; i++) {
+              o.getMatrixAt(i, im);
+              add(o, matrix.clone().multiply(im));
+            }
+          } else if (o.isMesh) {
+            add(o, matrix);
+          }
+          for (const c of o.children) {
+            c.updateMatrix();
+            visit(c, matrix.clone().multiply(c.matrix));
+          }
+        };
+        visit(obj, root);
+      }
+    }
+    for (const [material, geos] of details) {
+      meshes.push(new THREE.SkinnedMesh(mergeGeometries(geos), material));
+      geos.forEach((g) => g.dispose());
+    }
+    for (const mesh of meshes) {
+      mesh.bind(this.rig.skeleton, new THREE.Matrix4());
+      mesh.bindMode = THREE.DetachedBindMode;
+      mesh.frustumCulled = false;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.visible = false;
+      this.root.add(mesh);
+    }
+    this.baked = meshes;
+    this._bakedShown = false;
+    return this;
+  }
+
+  _limbsCovered() {
+    const done = (n) => {
+      const p = this.byName[n];
+      return p && p.state.fold >= 0.999 && p.state.fly >= 0.999 && p.state.reveal >= 0.999;
+    };
+    return ["jacket-sleeve-1", "jacket-sleeve--1", "trousers-leg-1", "trousers-leg--1"].every(done);
+  }
+
+  _showBaked(on, reveal) {
+    if (on) this.bakedReveal.value = reveal;
+    for (const b of this.baked) b.visible = on && reveal > 0.002;
+    if (on === this._bakedShown) return;
+    this._bakedShown = on;
+    for (const p of this.pieces) {
+      p.mesh.visible = !on;
+      for (const d of p.details) d.obj.visible = !on;
+    }
   }
 
   dispose() {
