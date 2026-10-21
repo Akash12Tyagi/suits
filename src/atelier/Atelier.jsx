@@ -18,7 +18,7 @@ function Chapter({ chapter, index, active, colour, onColour, pattern, onPattern 
   const { side, eyebrow, title, body, spec, swatches, patterns, drag, cta } = chapter;
   return (
     <section
-      className={`chapter chapter--${side}${active ? " is-active" : ""}`}
+      className={`chapter chapter--${side}${chapter.theme ? ` chapter--${chapter.theme}` : ""}${active ? " is-active" : ""}`}
       data-chapter={index}
       aria-labelledby={`chapter-${chapter.id}`}
     >
@@ -140,9 +140,14 @@ export default function Atelier() {
       setFallback(true);
       setReady(true);
     } else {
-      // The 3D engine is loaded on demand so the text paints first.
-      Promise.all([import("./three/Stage.js"), import("./three/choreography.js")]).then(
-        ([{ Stage }, { buildChoreography }]) => {
+      // The 3D engine is loaded on demand so the text paints first; the cast's
+      // heads and hands are sculpted in workers before the stage is built.
+      Promise.all([import("./three/Stage.js"), import("./three/choreography.js")])
+        .then(async (mods) => {
+          await mods[0].prepareStage();
+          return mods;
+        })
+        .then(([{ Stage }, { buildChoreography }]) => {
           if (disposed) return;
           let stage;
           try {
@@ -199,9 +204,11 @@ export default function Atelier() {
     };
   }, []);
 
-  // Turning the figure by hand is offered in the silhouette chapter only.
+  // Turning the figure by hand is offered in the silhouette chapter only;
+  // the daylight lookbook chapters switch the page chrome to dark ink.
   useEffect(() => {
     stageApi.current?.setDragEnabled(Boolean(CHAPTERS[active]?.drag));
+    document.documentElement.classList.toggle("is-light", CHAPTERS[active]?.theme === "light");
   }, [active, ready]);
 
   const choosePattern = (id) => {

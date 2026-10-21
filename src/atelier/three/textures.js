@@ -292,3 +292,46 @@ export function tapeTexture(anisotropy = 8) {
   tex.generateMipmaps = true;
   return tex;
 }
+
+/**
+ * A coloured striped worsted — the colour lives in the map (material colour
+ * stays white) so the stripe can be lighter than the ground.
+ * period: stripe spacing in metres; the cloth UVs run at 12 tiles per metre.
+ */
+export function stripeTexture({ base, stripe, period = 0.0125 }, anisotropy = 8) {
+  const size = 512;
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const g = c.getContext("2d");
+  const rand = rng(23);
+  g.fillStyle = base;
+  g.fillRect(0, 0, size, size);
+  // Twill relief in the ground colour.
+  const shade = new THREE.Color(base);
+  for (let k = -size; k < size * 2; k += 8) {
+    const t = 0.82 + rand() * 0.22;
+    g.strokeStyle = `#${shade.clone().multiplyScalar(t).getHexString()}`;
+    g.lineWidth = 3.6;
+    g.beginPath();
+    g.moveTo(k, 0);
+    g.lineTo(k + size, size);
+    g.stroke();
+  }
+  // Fine stripes: an integer count per tile so the pattern repeats cleanly.
+  const n = Math.max(1, Math.round(1 / 12 / period));
+  const step = size / n;
+  for (let x = step / 2; x < size; x += step) {
+    for (let y = 0; y < size; y += 2) {
+      const a = 0.55 + 0.4 * rand();
+      g.globalAlpha = a;
+      g.fillStyle = stripe;
+      g.fillRect(x - 1 + rand() * 0.6, y, 2.2, 2);
+    }
+  }
+  g.globalAlpha = 1;
+  for (let i = 0; i < 5000; i++) {
+    g.fillStyle = `rgba(255,255,255,${rand() * 0.12})`;
+    g.fillRect(rand() * size, rand() * size, 1 + rand(), 1);
+  }
+  return finish(c, 1, anisotropy);
+}

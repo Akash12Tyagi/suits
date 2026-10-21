@@ -1,176 +1,27 @@
 import * as THREE from "three";
 import { attachToBone, skinWeights } from "./rig.js";
-import { withReveal } from "./cloth.js";
 import { shoeGeometry } from "./props.js";
+import {
+  eyeballs,
+  hairGeometry,
+  hairMaterial,
+  handBones,
+  handGeometry,
+  headGeometry,
+  poseHumanHand,
+  skinMaterial,
+} from "./human.js";
 
 /*
- * The wearer: an articulated atelier mannequin. Head, hands and feet are
- * rigid sculpted parts on their bones; torso, arms and legs are skinned to
- * the rig. Every part renders twice: a solid lacquered graphite surface and
- * the glowing hologram from the opening shot, cross-faded by look.solid / look.glow.
+ * The wearer, a member of the cast (characters.js): sculpted head with hair
+ * and eyes, skinned hands with finger bones, and a skinned body under the
+ * clothes. Every part can also render as the glowing hologram from the opening
+ * shot; look.glow and look.solid cross-fade the two.
  */
 
-const sm = THREE.MathUtils.smoothstep;
-const g = (x, s) => Math.exp(-(x * x) / (s * s));
-
-// ------------------------------------------------------------------ head
-
-export function headGeometry() {
-  const geo = new THREE.SphereGeometry(1, 120, 90);
-  const p = geo.attributes.position;
-  const v = new THREE.Vector3();
-  for (let i = 0; i < p.count; i++) {
-    v.fromBufferAttribute(p, i);
-    const { x, y, z } = v; // unit sphere: x right, y up, z forward (face)
-    const front = sm(z, 0.35, 0.95);
-    const ax = Math.abs(x);
-
-    let X = x * 0.074;
-    let Y = y * 0.114;
-    let Z = z * 0.098;
-
-    // Cranium fuller behind and above; face flatter.
-    if (z < 0) Z *= 1.07;
-    Y += 0.006 * sm(y, 0.2, 1) * (z < 0 ? 1 : 0.5);
-    Z -= 0.01 * sm(z, 0.6, 1.0);
-
-    // Jaw and chin: narrow toward a defined chin, with a firm jawline.
-    const low = sm(-y, 0.05, 0.9);
-    X *= 1 - 0.3 * low * (0.55 + 0.45 * Math.max(z, 0));
-    Z += 0.014 * g(y + 0.8, 0.16) * Math.max(z, 0);
-    Z *= 1 - 0.22 * sm(-y, 0.5, 0.98) * (z < 0.2 ? 1 : 0.35);
-
-    // Brow ridge, eye sockets, cheekbones.
-    const n = new THREE.Vector3(X, Y, Z).normalize();
-    let d = 0;
-    d += 0.0065 * g(y - 0.24, 0.08) * g(x, 0.6) * front;
-    d -= 0.0075 * g(ax - 0.36, 0.17) * g(y - 0.1, 0.11) * front;
-    d += 0.0055 * g(ax - 0.55, 0.16) * g(y + 0.04, 0.12) * sm(z, 0.2, 0.7);
-
-    // Nose: a straight bridge widening to the base, sharply undercut.
-    const ramp = sm(y, 0.17, -0.12) * (1 - sm(y, -0.13, -0.24));
-    const width = 0.08 + 0.09 * sm(y, 0.1, -0.15);
-    d += 0.024 * ramp * g(x, width) * sm(z, 0.75, 0.97);
-
-    // Lips and the line between them.
-    d += 0.0055 * g(x, 0.3) * g(y + 0.39, 0.065) * front;
-    d -= 0.0022 * g(x, 0.26) * g(y + 0.375, 0.012) * front;
-
-    // Ears.
-    d += 0.017 * g(y - 0.05, 0.17) * g(z + 0.06, 0.17) * sm(ax, 0.82, 1.0);
-
-    X += n.x * d;
-    Y += n.y * d;
-    Z += n.z * d;
-    p.setXYZ(i, X, Y, Z);
-  }
-  geo.computeVertexNormals();
-  return geo;
-}
-
-// ------------------------------------------------------------------ hands
-
-function roundedBox(w, h, d, r, seg = 5) {
-  const geo = new THREE.BoxGeometry(w, h, d, seg, seg, seg);
-  const p = geo.attributes.position;
-  const v = new THREE.Vector3();
-  const inner = new THREE.Vector3(w / 2 - r, h / 2 - r, d / 2 - r);
-  for (let i = 0; i < p.count; i++) {
-    v.fromBufferAttribute(p, i);
-    const c = new THREE.Vector3(
-      THREE.MathUtils.clamp(v.x, -inner.x, inner.x),
-      THREE.MathUtils.clamp(v.y, -inner.y, inner.y),
-      THREE.MathUtils.clamp(v.z, -inner.z, inner.z)
-    );
-    const dir = v.clone().sub(c);
-    if (dir.lengthSq() > 0) v.copy(c).addScaledVector(dir.normalize(), r);
-    p.setXYZ(i, v.x, v.y, v.z);
-  }
-  geo.computeVertexNormals();
-  return geo;
-}
-
-/**
- * A jointed hand for side s (+1 left, -1 right). Built hanging: fingers point
- * down (-Y), the palm faces the body (-s·X), the thumb points forward (+Z).
- * Returns the group plus its finger joints so poses can curl them.
- */
-export function buildHand(side, material) {
-  const s = side;
-  const group = new THREE.Group();
-  const palm = roundedBox(0.026, 0.098, 0.084, 0.011);
-  palm.translate(0, -0.056, 0.004);
-  const palmMesh = new THREE.Mesh(palm, material);
-  group.add(palmMesh);
-  const wrist = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.029, 0.04, 20), material);
-  wrist.scale.set(0.75, 1, 1.25);
-  wrist.position.y = -0.006;
-  group.add(wrist);
-
-  const fingers = [];
-  const defs = [
-    { z: 0.031, len: [0.044, 0.027, 0.021], r: 0.0088 },
-    { z: 0.0105, len: [0.049, 0.031, 0.023], r: 0.0091 },
-    { z: -0.0105, len: [0.046, 0.029, 0.022], r: 0.0086 },
-    { z: -0.031, len: [0.036, 0.022, 0.019], r: 0.0075 },
-  ];
-  for (const d of defs) {
-    const joints = [];
-    let parent = group;
-    let y = -0.103;
-    d.len.forEach((len, k) => {
-      const j = new THREE.Group();
-      j.position.set(0, k === 0 ? y : -d.len[k - 1], k === 0 ? d.z : 0);
-      const r = d.r * (1 - k * 0.09);
-      const seg = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(len - r * 1.4, 0.004), 4, 10), material);
-      seg.position.y = -len / 2;
-      j.add(seg);
-      parent.add(j);
-      joints.push(j);
-      parent = j;
-      y = 0;
-    });
-    fingers.push(joints);
-  }
-  // Thumb: rooted at the heel of the palm, angled forward and across.
-  const thumb = [];
-  {
-    let parent = group;
-    const lens = [0.042, 0.03, 0.025];
-    lens.forEach((len, k) => {
-      const j = new THREE.Group();
-      if (k === 0) {
-        j.position.set(-0.008 * s, -0.035, 0.036);
-        j.rotation.set(0.75, 0, 0.25 * s);
-      } else {
-        j.position.set(0, -lens[k - 1], 0);
-      }
-      const r = 0.0105 * (1 - k * 0.1);
-      const seg = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(len - r * 1.4, 0.004), 4, 10), material);
-      seg.position.y = -len / 2;
-      j.add(seg);
-      parent.add(j);
-      thumb.push(j);
-      parent = j;
-    });
-  }
-  return { group, fingers, thumb, side: s };
-}
-
-/** Curl the fingers toward the palm: 0 open, 1 fist. pinch closes thumb+index. */
-export function poseHand(hand, curl, pinch = 0) {
-  const s = hand.side;
-  hand.fingers.forEach((joints, f) => {
-    const extra = f === 0 ? pinch * 0.6 : pinch * 0.25;
-    const c = curl + extra + f * 0.06;
-    joints[0].rotation.z = -s * c * 0.9;
-    joints[1].rotation.z = -s * c * 1.25;
-    joints[2].rotation.z = -s * c * 0.9;
-  });
-  hand.thumb[1].rotation.z = -s * (0.25 + pinch * 0.55);
-  hand.thumb[2].rotation.z = -s * (0.2 + pinch * 0.45);
-  hand.thumb[0].rotation.y = -s * pinch * 0.35;
-}
+// Where the head sits on the rig: chin just above the collar.
+const HEAD_AT = new THREE.Vector3(0, 0.704, 0.012);
+const HEAD_SCALE = 1.04;
 
 // ------------------------------------------------------------------ body skin
 
@@ -204,6 +55,7 @@ function tubeSkinGeometry(rig, tube, t0, t1, cols, rows, opts) {
   geo.setAttribute("skinWeight", new THREE.Float32BufferAttribute(skinW, 4));
   geo.setIndex(idx);
   geo.computeVertexNormals();
+  geo.userData.tube = true;
   // Make sure the surface faces outward (tube winding depends on the frame).
   const n = new THREE.Vector3().fromBufferAttribute(geo.attributes.normal, Math.floor(rows / 2) * (cols + 1));
   const p = new THREE.Vector3().fromBufferAttribute(geo.attributes.position, Math.floor(rows / 2) * (cols + 1));
@@ -266,13 +118,16 @@ void main() {
 
 export class Character {
   /**
-   * @param rig      skeleton from createRig
-   * @param body     the body tubes
-   * @param opts.full  build the hologram and the bare body (hero only)
+   * @param rig          skeleton from createRig
+   * @param body         the body tubes
+   * @param opts.cast    a member of CAST (characters.js)
+   * @param opts.full    build the hologram and the bare body (hero only)
+   * @param opts.quality 1 for close-ups, 0 for figures seen at a distance
    */
-  constructor(rig, body, { full = true } = {}) {
+  constructor(rig, body, { cast, full = true, quality = 1 } = {}) {
     this.rig = rig;
     this.full = full;
+    this.cast = cast;
     this.uniforms = {
       uScan: { value: 0 },
       uGlow: { value: full ? 1 : 0 },
@@ -288,56 +143,50 @@ export class Character {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-    this.solidMat = withReveal(
-      new THREE.MeshPhysicalMaterial({
-        color: "#3b3836",
-        roughness: 0.5,
-        clearcoat: 0.18,
-        clearcoatRoughness: 0.45,
-        sheen: 0.35,
-        sheenColor: new THREE.Color("#8a8f9c"),
-        sheenRoughness: 0.5,
-      }),
-      this.solidReveal
-    );
+    this.skinMat = skinMaterial(cast.skin, this.solidReveal);
+    this.bodyMat = skinMaterial(cast.skin, this.solidReveal, { painted: false });
+    this.hairMat = hairMaterial(cast.hair, this.solidReveal);
 
-    this.skinned = [];
     this.solids = [];
     this.glows = [];
     this.group = new THREE.Group();
 
-    const addSkinned = (geo) => {
-      const solid = new THREE.SkinnedMesh(geo, this.solidMat);
+    // `bind` places geometry modelled in its own frame (the hands) at its
+    // bind-pose transform; the mesh sits there and skins from there.
+    const skinnedPair = (geo, skeleton, bind = new THREE.Matrix4(), material = this.bodyMat) => {
+      const solid = new THREE.SkinnedMesh(geo, material);
       solid.castShadow = true;
       solid.receiveShadow = true;
       this.solids.push(solid);
-      this.skinned.push(solid);
-      this.group.add(solid);
+      const meshes = [solid];
       if (full) {
         const glow = new THREE.SkinnedMesh(geo, this.glowMat);
         glow.renderOrder = 3;
         this.glows.push(glow);
-        this.skinned.push(glow);
-        this.group.add(glow);
+        meshes.push(glow);
+      }
+      for (const m of meshes) {
+        m.frustumCulled = false;
+        bind.decompose(m.position, m.quaternion, m.scale);
+        m.updateMatrix();
+        m.bind(skeleton, bind.clone());
+        m.bindMode = THREE.DetachedBindMode;
+        this.group.add(m);
       }
     };
+
     // Torso and neck always (the neck shows above the collar); limbs for the hero.
-    addSkinned(tubeSkinGeometry(rig, body.torso, full ? -0.24 : 0.42, 0.66, 64, full ? 90 : 24));
+    skinnedPair(tubeSkinGeometry(rig, body.torso, full ? -0.24 : 0.36, 0.66, 64, full ? 90 : 28), rig.skeleton);
     if (full) {
       for (const s of ["L", "R"]) {
-        addSkinned(tubeSkinGeometry(rig, body["arm" + s], -0.06, 1.02, 32, 56));
-        addSkinned(tubeSkinGeometry(rig, body["leg" + s], -0.08, 0.99, 32, 64, { foot: true }));
+        skinnedPair(tubeSkinGeometry(rig, body["arm" + s], -0.06, 1.02, 32, 56), rig.skeleton);
+        skinnedPair(tubeSkinGeometry(rig, body["leg" + s], -0.08, 0.99, 32, 64, { foot: true }), rig.skeleton);
       }
-    }
-    for (const m of this.skinned) {
-      m.frustumCulled = false;
-      m.bind(rig.skeleton, new THREE.Matrix4());
-      m.bindMode = THREE.DetachedBindMode;
     }
 
     // Rigid parts on bones, each with its hologram twin.
-    const rigid = (geo, bone, place) => {
-      const solid = new THREE.Mesh(geo, this.solidMat);
+    const rigid = (geo, bone, material, place) => {
+      const solid = new THREE.Mesh(geo, material);
       solid.castShadow = true;
       solid.receiveShadow = true;
       place(solid);
@@ -354,36 +203,38 @@ export class Character {
       return { solid, glow };
     };
 
-    const head = headGeometry();
-    rigid(head, "head", (m) => m.position.set(0, 0.738, 0.022));
+    // Head, hair and eyes.
+    const atHead = (m) => {
+      m.position.copy(HEAD_AT);
+      m.scale.setScalar(HEAD_SCALE);
+    };
+    rigid(headGeometry(cast, quality), "head", this.skinMat, atHead);
+    rigid(hairGeometry(cast.hairStyle, quality), "head", this.hairMat, atHead);
+    const eyes = eyeballs(cast.eyes, this.solidReveal);
+    eyes.group.position.copy(HEAD_AT);
+    eyes.group.scale.setScalar(HEAD_SCALE);
+    attachToBone(rig, "head", eyes.group);
+    this.solids.push(...eyes.eyes);
+    this.eyeMat = eyes.material;
 
+    // Hands: a small skeleton of finger bones under each wrist.
+    rig.root.updateMatrixWorld(true);
+    const hands = handGeometry();
     this.hands = {};
     for (const [s, side] of [
       ["L", 1],
       ["R", -1],
     ]) {
-      const hand = buildHand(side, this.solidMat);
+      const hb = handBones(side);
       const dir = body["arm" + s].axis.clone();
-      hand.group.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);
-      hand.group.position.copy(rig.bind["hand" + s]);
-      attachToBone(rig, "hand" + s, hand.group);
-      hand.group.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = true;
-          this.solids.push(o);
-        }
-      });
-      if (full) {
-        const glowHand = buildHand(side, this.glowMat);
-        glowHand.group.quaternion.copy(hand.group.quaternion);
-        glowHand.group.position.copy(rig.bind["hand" + s]);
-        attachToBone(rig, "hand" + s, glowHand.group);
-        glowHand.group.traverse((o) => o.isMesh && (o.renderOrder = 3) && this.glows.push(o));
-        this.hands[s + "glow"] = glowHand;
-      }
-      this.hands[s] = hand;
-      poseHand(hand, 0.32);
-      if (this.hands[s + "glow"]) poseHand(this.hands[s + "glow"], 0.32);
+      hb.root.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);
+      hb.root.position.copy(rig.bind["hand" + s]);
+      attachToBone(rig, "hand" + s, hb.root);
+      rig.root.updateMatrixWorld(true);
+      const skeleton = new THREE.Skeleton(hb.list);
+      skinnedPair(side > 0 ? hands.left : hands.right, skeleton, hb.root.matrixWorld.clone(), this.skinMat);
+      this.hands[s] = hb;
+      poseHumanHand(hb, 0.24);
     }
 
     // Bare feet for the hologram; shoes replace them.
@@ -391,8 +242,8 @@ export class Character {
     if (full) {
       const foot = shoeGeometry();
       for (const s of ["L", "R"]) {
-        const { solid, glow } = rigid(foot, "foot" + s, (m) => {
-          m.position.copy(rig.bind["foot" + s]).add(new THREE.Vector3(0, -0.077, 0));
+        const { solid, glow } = rigid(foot, "foot" + s, this.bodyMat, (m) => {
+          m.position.copy(rig.bind["foot" + s]).add(new THREE.Vector3(0, -0.0875, 0));
           m.scale.set(0.9, 0.85, 0.94);
         });
         this.feet.push(solid, glow);
@@ -401,11 +252,8 @@ export class Character {
   }
 
   setHandPose(curl, pinchL = 0, pinchR = 0) {
-    for (const s of ["L", "R"]) {
-      const pinch = s === "L" ? pinchL : pinchR;
-      poseHand(this.hands[s], curl, pinch);
-      if (this.hands[s + "glow"]) poseHand(this.hands[s + "glow"], curl, pinch);
-    }
+    poseHumanHand(this.hands.L, curl, pinchL);
+    poseHumanHand(this.hands.R, curl, pinchR);
   }
 
   update(time, { scan, glow, solid, feet }) {
@@ -420,11 +268,11 @@ export class Character {
   }
 
   dispose() {
-    const geos = new Set();
-    this.group.traverse((o) => o.geometry && geos.add(o.geometry));
-    for (const bone of this.rig.list) bone.traverse((o) => o.geometry && geos.add(o.geometry));
-    geos.forEach((g) => g.dispose());
-    this.glowMat.dispose();
-    this.solidMat.dispose();
+    // Heads, hair and hands are shared by every figure and kept for the
+    // session; only this character's own geometry and materials go.
+    this.group.traverse((o) => {
+      if (o.geometry?.userData.tube) o.geometry.dispose();
+    });
+    for (const m of [this.glowMat, this.skinMat, this.bodyMat, this.hairMat, this.eyeMat]) m.dispose();
   }
 }

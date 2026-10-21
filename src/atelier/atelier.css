@@ -571,6 +571,34 @@ html.can-drag .story:active {
   }
 }
 
+/* Daylight chapters: dark ink on the pale studio. */
+.chapter--light {
+  --paper: #17181b;
+  --paper-dim: rgba(23, 24, 27, 0.74);
+  --paper-faint: rgba(23, 24, 27, 0.5);
+  --hair: rgba(23, 24, 27, 0.2);
+  --gold: #8a6a35;
+  color: var(--paper);
+}
+
+.chapter--light .headline {
+  text-shadow: none;
+}
+
+html.is-light .masthead,
+html.is-light .rail {
+  color: #17181b;
+  --paper: #17181b;
+  --paper-dim: rgba(23, 24, 27, 0.74);
+  --paper-faint: rgba(23, 24, 27, 0.5);
+  --hair: rgba(23, 24, 27, 0.2);
+}
+
+.masthead,
+.rail {
+  transition: color 0.6s ease;
+}
+
 /* ------------------------------------------------------------------ footer */
 .footer {
   position: relative;
@@ -675,6 +703,10 @@ html.can-drag .story:active {
 
   .chapter.is-active .chapter__sticky::before {
     opacity: 1;
+  }
+
+  .chapter--light .chapter__sticky::before {
+    background: linear-gradient(to top, rgba(196, 198, 202, 0.95) 0%, rgba(196, 198, 202, 0.72) 45%, transparent);
   }
 
   .chapter--centre .chapter__sticky::before {

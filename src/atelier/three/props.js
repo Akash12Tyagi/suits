@@ -129,6 +129,23 @@ export function pocketSquareGeometry() {
   return g;
 }
 
+/** A silk square worn puffed: a soft crumpled crown above the welt. */
+export function pocketPuffGeometry() {
+  const g = new THREE.SphereGeometry(1, 28, 18, 0, Math.PI * 2, 0, Math.PI * 0.55);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i);
+    const y = p.getY(i);
+    const z = p.getZ(i);
+    const crumple = 1 + 0.18 * Math.sin(x * 9 + z * 7) * Math.sin(z * 11 - x * 5) + 0.08 * Math.sin(Math.atan2(z, x) * 7);
+    p.setXYZ(i, x * 0.034 * crumple, (y - 0.2) * 0.02 * crumple, z * 0.012 * crumple);
+  }
+  g.computeVertexNormals();
+  // Face the crown up out of the pocket (the square is oriented by lookAt).
+  g.rotateX(Math.PI / 2);
+  return g;
+}
+
 /** Fedora: pinched crown, ribbon band, brim snapped down at the front. */
 export function fedora(feltColor, bandColor = "#0b0b0c") {
   const group = new THREE.Group();
