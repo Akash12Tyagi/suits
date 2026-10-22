@@ -285,21 +285,24 @@ export class Stage {
     day.target.position.set(LOOKBOOK.x, -0.4, 0);
     day.castShadow = true;
     day.shadow.mapSize.set(shadowSize, shadowSize);
-    day.shadow.camera.left = -3;
-    day.shadow.camera.right = 3;
-    day.shadow.camera.top = 3;
-    day.shadow.camera.bottom = -3;
+    day.shadow.camera.left = -2.4;
+    day.shadow.camera.right = 2.4;
+    day.shadow.camera.top = 2.4;
+    day.shadow.camera.bottom = -2.4;
     day.shadow.camera.near = 0.5;
     day.shadow.camera.far = 10;
     day.shadow.bias = -0.0003;
     day.shadow.normalBias = 0.015;
-    day.shadow.radius = 6;
+    day.shadow.radius = 4;
     s.add(day, day.target);
     this.lights = { key, rimL, rimR, fill, hemi, street, day };
   }
 
   _composer() {
-    const composer = new EffectComposer(this.renderer);
+    // The scene renders into the composer's target, not the canvas, so the
+    // canvas's own antialiasing never applies: multisample the target instead.
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: this.lowPower ? 2 : 4 });
+    const composer = new EffectComposer(this.renderer, target);
     composer.addPass(new RenderPass(this.scene, this.camera));
     this.bokeh = new BokehPass(this.scene, this.camera, { focus: 0.5, aperture: 0.02, maxblur: 0.008 });
     this.bokeh.enabled = false;
@@ -513,10 +516,17 @@ export class Stage {
     li.street.shadow.autoUpdate = li.street.intensity > 0.05;
     li.day.shadow.autoUpdate = li.day.intensity > 0.05;
     this.workshop.lamp.shadow.autoUpdate = this.workshop.lamp.intensity > 0.05;
+    // A map that has never been drawn does not exist yet, and every lit
+    // material samples it: draw each one at least once.
+    for (const l of [li.key, li.street, li.day, this.workshop.lamp]) if (l.castShadow && !l.shadow.map) l.shadow.needsUpdate = true;
     // Bloom belongs to the dark atelier; on a pale set it only fogs the frame.
     this.bloom.strength = 0.38 * (1 - L.day);
 
     this.renderer.toneMappingExposure = 1.05 * L.exposure * (1 - 0.22 * L.day);
+    // ACES gives the night atelier its roll-off but desaturates dark cloth;
+    // the daylight lookbook shows real cloths, so it uses Khronos PBR Neutral,
+    // made to keep product base colours true. It swaps inside the cut to black.
+    this.renderer.toneMapping = L.day > 0.5 ? THREE.NeutralToneMapping : THREE.ACESFilmicToneMapping;
     this.finish.uniforms.uTime.value = this.reducedMotion ? 0 : t;
     this.finish.uniforms.uFade.value = L.fade * (1 - L.blackout);
 

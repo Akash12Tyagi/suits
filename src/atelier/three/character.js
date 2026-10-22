@@ -176,7 +176,7 @@ export class Character {
     };
 
     // Torso and neck always (the neck shows above the collar); limbs for the hero.
-    skinnedPair(tubeSkinGeometry(rig, body.torso, full ? -0.24 : 0.36, 0.66, 64, full ? 90 : 28), rig.skeleton);
+    skinnedPair(tubeSkinGeometry(rig, body.torso, full ? -0.24 : 0.36, 0.585, 64, full ? 90 : 24), rig.skeleton);
     this.limbs = [];
     if (full) {
       for (const s of ["L", "R"]) {
@@ -212,7 +212,9 @@ export class Character {
       m.position.copy(HEAD_AT);
       m.scale.setScalar(HEAD_SCALE);
     };
-    rigid(headGeometry(cast, quality), "head", this.skinMat, atHead);
+    // Only the hero's face takes cast shadows (the atelier key, close up). At
+    // the shadow map's texel size a face's self-shadow is a blurred smear.
+    rigid(headGeometry(cast, quality), "head", this.skinMat, atHead).solid.receiveShadow = full;
     rigid(hairGeometry(cast.hairStyle, quality), "head", this.hairMat, atHead);
     const eyes = eyeballs(cast.eyes, this.solidReveal);
     eyes.group.position.copy(HEAD_AT);

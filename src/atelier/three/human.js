@@ -10,8 +10,10 @@ import {
   sdRoundBox,
   sphere,
   surfaceNets,
+  smax,
   taper,
 } from "./sdf.js";
+import { monotoneSpline } from "./body.js";
 
 /*
  * Human parts sculpted as signed-distance fields: head (skull, jaw, brow,
@@ -31,6 +33,47 @@ const _p = new THREE.Vector3();
 const EYE = V3(0.0312, -0.002, 0.0785);
 export const EYE_RADIUS = 0.0118;
 
+/*
+ * The face is lofted from profile keys rather than assembled from blobs, so its
+ * silhouette is drawn directly: [y, half-width, front z] from brow to chin,
+ * with a jaw underside plane that gives the jawline its edge.
+ */
+const FACE_KEYS = monotoneSpline([
+  [-0.118, 0.027, 0.08],
+  [-0.106, 0.041, 0.089],
+  [-0.09, 0.053, 0.087],
+  [-0.07, 0.059, 0.09],
+  [-0.055, 0.0645, 0.089],
+  [-0.035, 0.068, 0.089],
+  [-0.014, 0.07, 0.089],
+  [0.0, 0.069, 0.09],
+  [0.014, 0.068, 0.096],
+  [0.035, 0.066, 0.092],
+  [0.055, 0.063, 0.086],
+]);
+// Jaw underside: from under the chin back and up to the angle of the jaw.
+const JAW_A = [-0.118, 0.075];
+const JAW_N = [-0.9285, -0.3714];
+
+function faceLoft(J, C, K) {
+  return (p) => {
+    const y = Math.min(Math.max(p.y, -0.12), 0.055);
+    let [w, f] = FACE_KEYS(y);
+    w *= 1 + (J - 1) * sm(-y, 0.04, 0.08) + (K - 1) * g(y + 0.014, 0.02);
+    f += (C - 1) * 0.03 * sm(-y, 0.085, 0.11);
+    const front = p.z >= 0;
+    const rz = front ? f : 0.075;
+    const n = front ? 2.25 : 2.0;
+    const x = Math.abs(p.x) / w;
+    const z = Math.abs(p.z) / rz;
+    const r = Math.pow(Math.pow(x, n) + Math.pow(z, n), 1 / n);
+    let d = (r - 1) * Math.min(w, rz);
+    const under = (p.y - JAW_A[0]) * JAW_N[0] + (p.z - JAW_A[1]) * JAW_N[1];
+    d = smax(d, under, 0.009);
+    return smax(d, p.y - 0.055, 0.02);
+  };
+}
+
 function headField(d) {
   const J = d.jaw ?? 1;
   const C = d.chin ?? 1;
@@ -40,43 +83,42 @@ function headField(d) {
   const add = (part, k, mirror = false) => ({ op: "add", d: part, k, mirror });
   const cut = (part, k, mirror = false) => ({ op: "cut", d: part, k, mirror });
   // Laid out on the facial thirds: hairline +0.065, brow +0.014, nose base
-  // -0.052, chin -0.115; eyes on the horizontal midline of the head.
+  // -0.052, chin -0.118; eyes on the horizontal midline of the head.
   const parts = [
-    // Skull, forehead, upper face.
-    add(ellipsoid(V3(0, 0.035, -0.012), V3(0.074, 0.088, 0.097)), 0),
-    add(ellipsoid(V3(0, 0.03, 0.032), V3(0.066, 0.06, 0.06)), 0.02),
-    add(ellipsoid(V3(0, -0.03, 0.04), V3(0.058, 0.055, 0.058)), 0.018),
-    // Cheekbones out at the zygomatic arch, soft cheeks below them.
-    add(ellipsoid(V3(0.055, -0.014, 0.05), V3(0.016 * K, 0.011, 0.026)), 0.022, true),
-    add(ellipsoid(V3(0.04, -0.045, 0.052), V3(0.022, 0.03, 0.03)), 0.028, true),
-    // Jawline from the angle of the jaw to the chin, the mouth mass, the chin.
-    add(capsule(V3(0.05 * J, -0.066, -0.006), V3(0.016, -0.103 * C, 0.072), 0.0135), 0.02, true),
-    add(ellipsoid(V3(0, -0.075, 0.04), V3(0.036, 0.03, 0.044)), 0.022),
-    add(ellipsoid(V3(0, -0.058, 0.079), V3(0.02, 0.012, 0.016)), 0.014), // philtrum
-    add(ellipsoid(V3(0, -0.1 * C, 0.074), V3(0.02, 0.016, 0.016)), 0.012),
-    // Brow ridge and temples.
-    add(capsule(V3(0, 0.016, 0.091), V3(0.045, 0.014, 0.08), 0.009 * B), 0.012, true),
-    cut(ellipsoid(V3(0.072, 0.025, 0.04), V3(0.01, 0.02, 0.02)), 0.01, true),
+    // Cranium, and the lofted face.
+    add(ellipsoid(V3(0, 0.035, -0.014), V3(0.0755, 0.089, 0.098)), 0),
+    add(faceLoft(J, C, K), 0.022),
+    // Zygomatic arch; the chin's mental protuberance.
+    add(ellipsoid(V3(0.056, -0.012, 0.05), V3(0.01 * K, 0.009, 0.022)), 0.024, true),
+    add(ellipsoid(V3(0, -0.103 * C, 0.08), V3(0.021, 0.012, 0.012)), 0.01),
+    add(ellipsoid(V3(0, -0.058, 0.086), V3(0.017, 0.012, 0.012)), 0.012), // philtrum
+    // Mentolabial fold between the lower lip and the chin.
+    cut(capsule(V3(-0.011, -0.0865, 0.093), V3(0.011, -0.0865, 0.093), 0.0026), 0.006),
+    // Brow ridge; temples gently flattened.
+    add(capsule(V3(0, 0.016, 0.093), V3(0.046, 0.014, 0.081), 0.0088 * B), 0.012, true),
+    cut(ellipsoid(V3(0.08, 0.028, 0.036), V3(0.008, 0.018, 0.018)), 0.012, true),
     // Eye sockets, lids around the eyeball, and the eye opening.
-    cut(sphere(V3(EYE.x, 0.0, 0.094), 0.017), 0.01, true),
+    cut(sphere(V3(EYE.x, 0.0, 0.096), 0.017), 0.01, true),
     add(sphere(EYE, 0.0126), 0.004, true),
-    cut(ellipsoid(V3(EYE.x, EYE.y - 0.0006, 0.0915), V3(0.012, 0.0043, 0.012)), 0.0018, true),
-    // Upper lid fold, which shades the top of the iris.
-    add(capsule(V3(EYE.x - 0.009, EYE.y + 0.0052, 0.0895), V3(EYE.x + 0.009, EYE.y + 0.0048, 0.0875), 0.0022), 0.003, true),
+    cut(ellipsoid(V3(EYE.x, EYE.y - 0.0002, 0.0915), V3(0.0128, 0.0056, 0.012)), 0.0018, true),
+    // Upper lid fold, which shades the top of the iris; a soft lower lid.
+    add(capsule(V3(EYE.x - 0.009, EYE.y + 0.0062, 0.0895), V3(EYE.x + 0.009, EYE.y + 0.0058, 0.0875), 0.0021), 0.003, true),
+    add(capsule(V3(EYE.x - 0.008, EYE.y - 0.0078, 0.0885), V3(EYE.x + 0.009, EYE.y - 0.0072, 0.0868), 0.0016), 0.004, true),
     // Nose: bridge, tip, alae; small nostrils on the underside.
-    add(capsule(V3(0, 0.012, 0.094), V3(0, -0.034, 0.111 + 0.004 * (N - 1)), 0.0078), 0.01),
-    add(sphere(V3(0, -0.041, 0.1105 + 0.006 * (N - 1)), 0.0094), 0.008),
-    add(sphere(V3(0.0108, -0.0462, 0.1005), 0.0068), 0.006, true),
-    cut(ellipsoid(V3(0.0064, -0.0522, 0.1035), V3(0.003, 0.0018, 0.0036)), 0.003, true),
-    // Lips (the line between them is painted, not carved).
-    add(capsule(V3(0, -0.0655, 0.0938), V3(0.0182, -0.0688, 0.0862), 0.0042), 0.005, true),
-    add(capsule(V3(0, -0.0752, 0.0922), V3(0.016, -0.0728, 0.0852), 0.0047), 0.005, true),
+    add(capsule(V3(0, 0.012, 0.095), V3(0, -0.032, 0.109 + 0.004 * (N - 1)), 0.0072), 0.01),
+    add(sphere(V3(0, -0.039, 0.1085 + 0.006 * (N - 1)), 0.0088), 0.008),
+    add(sphere(V3(0.0108, -0.0462, 0.1015), 0.0066), 0.006, true),
+    cut(ellipsoid(V3(0.0064, -0.0522, 0.1045), V3(0.003, 0.0018, 0.0036)), 0.003, true),
+    // Lips, fuller at the centre (the line between them is painted, not carved).
+    add(capsule(V3(0, -0.0655, 0.0975), V3(0.0175, -0.0688, 0.0885), 0.0044), 0.005, true),
+    add(capsule(V3(0, -0.0755, 0.0965), V3(0.0155, -0.073, 0.0875), 0.0052), 0.005, true),
     // Ears, top level with the brow, bottom with the nose; the concha.
-    add(ellipsoid(V3(0.075, -0.016, -0.012), V3(0.0105, 0.031, 0.02)), 0.006, true),
-    cut(ellipsoid(V3(0.0815, -0.02, -0.006), V3(0.0055, 0.016, 0.01)), 0.003, true),
-    // Neck and the larynx.
-    add(capsule(V3(0, -0.07, -0.022), V3(0, -0.2, -0.016), 0.0605), 0.018),
-    add(sphere(V3(0, -0.125, 0.03), 0.008), 0.01),
+    add(ellipsoid(V3(0.076, -0.016, -0.014), V3(0.0105, 0.031, 0.02)), 0.006, true),
+    cut(ellipsoid(V3(0.0825, -0.02, -0.008), V3(0.0055, 0.016, 0.01)), 0.003, true),
+    // Neck set back under the skull, the larynx, the sternomastoids.
+    add(capsule(V3(0, -0.07, -0.032), V3(0, -0.2, -0.018), 0.056), 0.012),
+    add(sphere(V3(0, -0.13, 0.024), 0.0085), 0.01),
+    add(capsule(V3(0.046, -0.07, -0.03), V3(0.016, -0.2, 0.03), 0.011), 0.014, true),
   ];
   const outer = ellipsoid(V3(0, 0.0, 0.01), V3(0.095, 0.13, 0.12));
   const neck = capsule(V3(0, -0.06, -0.025), V3(0, -0.2, -0.02), 0.063);
@@ -122,22 +164,23 @@ function paintSkin(geo, d) {
     gC *= 1 - 0.24 * lips;
     b *= 1 - 0.2 * lips;
     // Beard shadow: jaw, chin, upper lip, a little down the neck.
-    const beardTop = ax > 0.05 ? -0.012 : -0.055 + 0.02 * sm(ax, 0.026, 0.05);
+    // The cheek line runs from the sideburn down to the corner of the mouth.
+    const beardTop = -0.058 + 0.046 * sm(ax, 0.022, 0.07);
     const beard =
       st *
-      sm(beardTop - p.y, 0.0, 0.012) *
+      sm(beardTop - p.y, -0.004, 0.016) *
       sm(p.z, -0.035, 0.0) *
       (1 - sm(-p.y, 0.125, 0.15)) *
       (1 - lips) *
       (0.55 + 0.45 * fine);
-    r = r * (1 - 0.42 * beard);
-    gC = gC * (1 - 0.4 * beard);
-    b = b * (1 - 0.34 * beard);
+    r = r * (1 - 0.3 * beard);
+    gC = gC * (1 - 0.29 * beard);
+    b = b * (1 - 0.24 * beard);
     // Brows.
     const browY = 0.016 - 0.004 * sm(ax, 0.028, 0.05);
     const brow =
-      g(p.y - browY, 0.0036) * sm(ax, 0.008, 0.017) * (1 - sm(ax, 0.046, 0.055)) * sm(p.z, 0.07, 0.085) * (0.6 + 0.4 * n);
-    const bk = 1 - 0.8 * brow * (d.brow ?? 1);
+      g(p.y - browY, 0.0044) * sm(ax, 0.008, 0.017) * (1 - sm(ax, 0.046, 0.055)) * sm(p.z, 0.07, 0.085) * (0.6 + 0.4 * n);
+    const bk = 1 - 0.86 * Math.min(1, brow * 1.15) * (d.brow ?? 1);
     r *= bk;
     gC *= bk;
     b *= bk;
@@ -189,40 +232,54 @@ function hairline(ax, z) {
   return y;
 }
 
+/*
+ * Hair is the scalp grown outward: a skull-hugging shell thickened by each
+ * style's volume. The thickness ramps up from nothing at the hairline, so the
+ * hair thins into the skin instead of ending in a hard edge like a cap.
+ */
 function hairField(style) {
   const add = (part, k) => ({ op: "add", d: part, k });
   const detail = (fn) => ({ op: "detail", d: fn });
+  const grow = (vol) => detail((p) => -vol(p) * sm(p.y - hairline(Math.abs(p.x), p.z), 0.0, 0.022));
+  const scalp = [
+    add(ellipsoid(V3(0, 0.035, -0.014), V3(0.0775, 0.091, 0.1)), 0),
+    add(ellipsoid(V3(0, 0.032, 0.03), V3(0.07, 0.064, 0.064)), 0.02),
+  ];
   let parts;
   if (style === "wave") {
+    // Thick on top and swept back, a loose wave across the head, short at the nape.
     parts = [
-      add(ellipsoid(V3(0, 0.03, -0.012), V3(0.0815, 0.1015, 0.105)), 0),
-      add(ellipsoid(V3(0, 0.078, 0.008), V3(0.071, 0.054, 0.098)), 0.02),
-      add(ellipsoid(V3(0, 0.09, 0.056), V3(0.058, 0.032, 0.043)), 0.02),
-      // Waves running back from the forehead.
-      detail((p) => 0.0034 * Math.sin(p.x * 115 + 2.4 * Math.sin(p.z * 36)) * sm(p.y, 0.02, 0.08) + 0.0015 * Math.sin(p.x * 290 + p.z * 40)),
+      ...scalp,
+      grow(
+        (p) =>
+          0.004 +
+          0.017 * sm(p.y, 0.02, 0.1) * (0.75 + 0.25 * sm(p.z, -0.06, 0.05)) +
+          0.004 * sm(p.y, 0.0, 0.06) * sm(Math.abs(p.x), 0.04, 0.07)
+      ),
+      detail((p) => 0.0032 * Math.sin(p.x * 110 + 2.6 * Math.sin(p.z * 34)) * sm(p.y, 0.03, 0.09) + 0.0012 * Math.sin(p.x * 300 + p.z * 50)),
     ];
   } else if (style === "part") {
+    // Short, side-parted on the wearer's left, fuller on top and combed across.
     parts = [
-      add(ellipsoid(V3(0, 0.03, -0.012), V3(0.0795, 0.0995, 0.103)), 0),
-      add(ellipsoid(V3(0.004, 0.073, 0.014), V3(0.07, 0.047, 0.094)), 0.018),
-      // The parting, close sides, combed texture.
+      ...scalp,
+      grow((p) => 0.0025 + 0.012 * sm(p.y, 0.03, 0.1) * sm(-0.03, 0.012, p.x - 0.028 + 0.05)),
       detail(
         (p) =>
-          0.0026 * g(p.x - 0.028, 0.0035) * sm(p.z, -0.03, 0.04) +
-          0.004 * sm(Math.abs(p.x), 0.058, 0.08) * sm(0.04, 0.0, p.y) +
-          0.0012 * Math.sin(p.z * 260 + p.x * 60)
+          0.0024 * g(p.x - 0.03, 0.003) * sm(p.y, 0.06, 0.09) * sm(p.z, -0.04, 0.03) +
+          0.0011 * Math.sin(p.z * 240 + p.x * 70) * sm(p.y, 0.05, 0.1)
       ),
     ];
   } else {
     parts = [
-      add(ellipsoid(V3(0, 0.029, -0.012), V3(0.0785, 0.098, 0.1015)), 0),
-      detail((p) => 0.0008 * Math.sin(p.x * 400 + p.z * 300)),
+      ...scalp,
+      grow((p) => 0.002 + 0.0035 * sm(p.y, 0.04, 0.11)),
+      detail((p) => 0.0007 * Math.sin(p.x * 400 + p.z * 300)),
     ];
   }
   // Only where hair grows, and clear of the ears.
-  parts.push({ op: "clip", d: (p) => hairline(Math.abs(p.x), p.z) - p.y, k: 0.006 });
-  parts.push({ op: "cut", d: ellipsoid(V3(0.078, -0.016, -0.012), V3(0.016, 0.036, 0.026)), k: 0.004, mirror: true });
-  const bound = ellipsoid(V3(0, 0.03, -0.005), V3(0.095, 0.12, 0.12));
+  parts.push({ op: "clip", d: (p) => hairline(Math.abs(p.x), p.z) - p.y, k: 0.003 });
+  parts.push({ op: "cut", d: ellipsoid(V3(0.079, -0.016, -0.014), V3(0.016, 0.036, 0.026)), k: 0.004, mirror: true });
+  const bound = ellipsoid(V3(0, 0.03, -0.005), V3(0.1, 0.125, 0.125));
   return sculpt(parts, bound);
 }
 
@@ -267,8 +324,8 @@ export function skinMaterial(color, reveal, { painted = true } = {}) {
           `float rawNL = dot( geometryNormal, directLight.direction );
 	float dotNL = saturate( rawNL );
 	vec3 irradiance = dotNL * directLight.color;
-	float wrapNL = saturate( ( rawNL + 0.4 ) / 1.4 );
-	vec3 skinIrr = mix( vec3( 1.0, 0.38, 0.28 ), vec3( 1.0 ), smoothstep( 0.0, 0.55, rawNL ) ) * wrapNL * directLight.color;`
+	float wrapNL = saturate( ( rawNL + 0.3 ) / 1.3 );
+	vec3 skinIrr = mix( vec3( 1.0, 0.62, 0.52 ), vec3( 1.0 ), smoothstep( -0.2, 0.6, rawNL ) ) * wrapNL * directLight.color;`
         )
         .replace(diffuse, "reflectedLight.directDiffuse += skinIrr * BRDF_Lambert( material.diffuseContribution ) * ( 1.0 - F );");
     } else {
@@ -279,7 +336,7 @@ export function skinMaterial(color, reveal, { painted = true } = {}) {
       .replace("#include <common>", "#include <common>\nuniform float uReveal;")
       .replace("#include <opaque_fragment>", "#include <opaque_fragment>\ngl_FragColor.rgb *= uReveal;");
   };
-  m.customProgramCacheKey = () => "atelier-skin-1";
+  m.customProgramCacheKey = () => "atelier-skin-2";
   return m;
 }
 
@@ -320,15 +377,15 @@ function eyeTexture(iris) {
   c.width = w;
   c.height = h;
   const ctx = c.getContext("2d");
-  ctx.fillStyle = "#dcd4c9";
+  ctx.fillStyle = "#ad9f90";
   ctx.fillRect(0, 0, w, h);
   // The sphere's pole faces forward, so the iris is the top rows.
   const ic = new THREE.Color(iris);
-  const irisRows = h * 0.19;
+  const irisRows = h * 0.23;
   for (let y = 0; y < irisRows; y++) {
     const t = y / irisRows;
-    const k = t < 0.36 ? 0.04 : t > 0.86 ? 0.35 : 0.75 + 0.25 * Math.sin(t * 20);
-    const col = ic.clone().multiplyScalar(t < 0.36 ? 0.05 : k);
+    const k = t < 0.32 ? 0.04 : t > 0.88 ? 0.45 : 1.25 + 0.3 * Math.sin(t * 20);
+    const col = ic.clone().multiplyScalar(k);
     ctx.fillStyle = `#${col.getHexString()}`;
     ctx.fillRect(0, y, w, 1);
   }
@@ -352,10 +409,10 @@ export function eyeballs(iris, reveal) {
   geo.rotateX(Math.PI / 2);
   const mat = new THREE.MeshPhysicalMaterial({
     map: eyeTexture(iris),
-    roughness: 0.35,
-    clearcoat: 0.55,
-    clearcoatRoughness: 0.12,
-    envMapIntensity: 0.5,
+    roughness: 0.4,
+    clearcoat: 0.3,
+    clearcoatRoughness: 0.2,
+    envMapIntensity: 0.12,
   });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uReveal = reveal;

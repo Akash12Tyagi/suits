@@ -25,6 +25,14 @@ scene.add(key);
 const rim = new THREE.DirectionalLight("#b8c8ff", 1.2);
 rim.position.set(-2, 1, -2);
 scene.add(rim);
+// &light=day approximates the lookbook: soft grey room, key high camera-right.
+if (q.get("light") === "day") {
+  scene.background = new THREE.Color("#a9abb0");
+  scene.environmentIntensity = 1.0;
+  key.position.set(2.2, 3.4, 3.0);
+  key.intensity = 2.6;
+  rim.intensity = 0;
+}
 const cam = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.01, 10);
 const d = CAST[who];
 const reveal = { value: 1 };
@@ -48,8 +56,18 @@ if (view === "head") {
   void bones;
 }
 console.log("build ms", Math.round(performance.now() - t0));
-group.rotation.y = yaw;
 scene.add(group);
 cam.lookAt(0, 0, 0);
-renderer.render(scene, cam);
+// &views=3 renders front, three-quarter and profile side by side.
+const yaws = q.get("views") === "3" ? [0, 0.6, 1.5707] : [yaw];
+const w = innerWidth / yaws.length;
+cam.aspect = w / innerHeight;
+cam.updateProjectionMatrix();
+renderer.setScissorTest(true);
+yaws.forEach((y, i) => {
+  group.rotation.y = y;
+  renderer.setViewport(i * w, 0, w, innerHeight);
+  renderer.setScissor(i * w, 0, w, innerHeight);
+  renderer.render(scene, cam);
+});
 document.title = "ready";

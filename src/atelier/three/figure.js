@@ -13,7 +13,9 @@ import { createRig, skinWeights, attachToBone, boneForTorsoY, ELBOW_T, KNEE_T } 
 import { Motion } from "./motion.js";
 import { Character } from "./character.js";
 import { CAST } from "./characters.js";
-import { stripeTexture } from "./textures.js";
+import { photoClothTexture } from "./textures.js";
+import sageCloth from "../assets/cloth-sage.jpg";
+import chestnutCloth from "../assets/cloth-chestnut.jpg";
 import {
   buttonGeometry,
   fedora,
@@ -38,17 +40,36 @@ const VEST_SIDE = -0.1;
 const VEST_POINT = -0.19;
 const HAT_AT = new THREE.Vector3(0, 0.792, 0.014);
 
+// Fibre sheen: a cool lift on the plain wools; the photographed cloths keep
+// their own hue, or the sheen greys them out.
+const woolSheen = (cw) =>
+  cw.sheen ? new THREE.Color(cw.sheen) : new THREE.Color(cw.wool).lerp(new THREE.Color("#c9d2e6"), 0.35);
+
 export const COLOURWAYS = {
   midnight: { label: "Midnight", wool: "#1a1d26", lining: "#4a1020", tie: "#0e0f14", hat: "#0d0d10", shoes: "#0b0b0c" },
   flannel: { label: "Flannel", wool: "#6f7279", lining: "#23262e", tie: "#15171c", hat: "#2c2d31", shoes: "#0b0b0c" },
   ivory: { label: "Ivory", wool: "#d9d2c3", lining: "#7b5b3c", tie: "#1e1f24", hat: "#d4cbb8", shoes: "#3b2416" },
   bordeaux: { label: "Bordeaux", wool: "#561321", lining: "#14090c", tie: "#141015", hat: "#3a0b14", shoes: "#0b0b0c" },
   // The two reference suits.
-  sage: { label: "Sage", wool: "#7b9d75", lining: "#c9d3c0", tie: "#1b1d22", hat: "#5f7a5a", shoes: "#3a2216", square: "#e9a3ae" },
+  // The two reference suits wear cloth sampled from the supplied photographs.
+  // The colour lives in the map; `wool` only scales the photo's brightness
+  // back to an albedo (the photographs were lit, and so is the set).
+  sage: {
+    label: "Sage",
+    wool: "#e0e0e0", // matched against photo 2: lit chest ~#80957f, trousers ~#627661
+    cloth: sageCloth, // photo 3, front panel below the waist button
+    sheen: "#4e6a4c", // a deeper shade of the cloth, for the fibre sheen
+    lining: "#c9d3c0",
+    tie: "#1b1d22",
+    hat: "#5f7a5a",
+    shoes: "#3a2216",
+    square: "#e9a3ae",
+  },
   chestnut: {
     label: "Chestnut",
-    wool: "#ffffff", // the colour lives in the striped cloth map
-    cloth: { base: "#6b3d1d", stripe: "#dcc6a2", period: 0.0125 },
+    wool: "#c4c4c4",
+    cloth: chestnutCloth, // photo 4: chocolate ground, beaded cream stripe every ~10 mm
+    sheen: "#3a2010",
     lining: "#3a1622",
     tie: "#1b1d22",
     hat: "#3a2416",
@@ -266,7 +287,7 @@ export class Figure {
       style.buttons === "black"
         ? new THREE.MeshPhysicalMaterial({ color: "#0b0b0c", vertexColors: true, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.08 })
         : hornMaterial(colourway === "ivory" ? "#3a2a1e" : "#17120f");
-    this.cloth = cw.cloth ? stripeTexture(cw.cloth) : null;
+    this.cloth = cw.cloth ? photoClothTexture(cw.cloth) : null;
     this.stitchMat = new THREE.MeshStandardMaterial({ color: "#8e8a83", roughness: 0.8 });
 
     this.params = {
@@ -286,12 +307,14 @@ export class Figure {
         return {
           color: c,
           roughness: 0.84,
+          // Wool barely reflects; a full dielectric specular greys photo cloth.
+          specularIntensity: this.cloth ? 0.45 : 1,
           sheen: 1,
           sheenRoughness: 0.42,
-          sheenColor: c.clone().lerp(new THREE.Color("#c9d2e6"), 0.35),
+          sheenColor: woolSheen(cw),
           map: this.cloth ? this.cloth.map : tex.wool.map,
           bumpMap: this.cloth ? this.cloth.bump : tex.wool.bump,
-          bumpScale: 1.4,
+          bumpScale: this.cloth ? 0.8 : 1.4,
           side,
         };
       },
@@ -478,9 +501,10 @@ export class Figure {
     const { torso, armL, armR } = this.body;
     const off = 0.006;
     let seed = 10;
-    // Worn open, the top two buttons are undone and the fronts part at the neck.
+    // Worn open, as in the reference photographs: the collar button and one
+    // more undone, so the fronts part in a short V at the neck.
     const open = this.style.collar === "open";
-    const neckOpen = (t) => (open ? 0.36 * Math.pow(sm(t, 0.34, 0.53), 1.1) : 0);
+    const neckOpen = (t) => (open ? 0.34 * Math.pow(sm(t, 0.405, 0.545), 1.1) : 0);
     const gap = open ? 0.34 : 0.07;
     // Tucked in: a little blousing gathers just above the waist.
     const blouse = (t) => 0.005 * gauss(t + 0.04, 0.07);
@@ -494,7 +518,7 @@ export class Figure {
           cols: 34,
           rows: 60,
           offFn: (theta, t) => (s > 0 ? off + 0.0012 : off) + blouse(t),
-          tRange: () => [-0.24, 0.532],
+          tRange: () => [-0.2, 0.532],
           thetaRange: (t) => [th(s, (s > 0 ? -0.04 : 0.0) + neckOpen(t)), th(s, HALF + 0.03)],
         },
         "cotton",
@@ -502,7 +526,7 @@ export class Figure {
       );
       this._hoverOut(p, new THREE.Vector3(s * 0.55, 0, 0.85), 0.7, 0.05, seed++);
       if (s > 0) {
-        const buttons = open ? [0.245, 0.13, 0.015, -0.1] : [0.47, 0.36, 0.245, 0.13, 0.015, -0.1];
+        const buttons = open ? [0.37, 0.255, 0.14, 0.025, -0.09] : [0.47, 0.36, 0.245, 0.13, 0.015, -0.1];
         for (const t of buttons) this._button(p, torso, HALF, t, off + 0.0028, 0.0052);
       }
     }
@@ -515,7 +539,7 @@ export class Figure {
         cols: 56,
         rows: 60,
         offFn: (theta, t) => off + blouse(t),
-        tRange: () => [-0.24, 0.532],
+        tRange: () => [-0.2, 0.532],
         thetaRange: () => [th(1, HALF - 0.03), th(1, PI * 1.5 + 0.03)],
       },
       "cotton",
@@ -541,7 +565,7 @@ export class Figure {
     this._hoverOut(band, new THREE.Vector3(0, 1, -0.3), 0.45, 0, seed++, 0.3);
 
     const leafTop = 0.582;
-    const leafGap = open ? 0.4 : 0.13;
+    const leafGap = open ? 0.3 : 0.13;
     const leafPhi = (u) => leafGap + u * (PI * 2 - 2 * leafGap);
     const leaf = this._piece(
       "shirt",
@@ -551,13 +575,18 @@ export class Figure {
         cols: 72,
         rows: 10,
         // Open, the collar rolls further out and lies over the jacket collar.
-        offFn: (theta, t) => 0.013 + (leafTop - t) * (open ? 0.62 : 0.42),
+        offFn: (theta, t) => 0.013 + (leafTop - t) * (open ? 0.56 : 0.42),
         tRange: (u) => {
           const p = leafPhi(u);
           const fromFront = Math.min(p, PI * 2 - p);
           return [leafTop - 0.05 - (open ? 0.042 : 0.032) * (1 - sm(fromFront, leafGap, leafGap + 0.6)), leafTop];
         },
-        thetaRange: () => [th(1, leafGap), th(1, PI * 2 - leafGap)],
+        // The front edge slants outward toward the point, so the points
+        // spread over the lapels instead of standing up beside the neck.
+        thetaRange: (t) => {
+          const gp = leafGap + (open ? 0.42 : 0.1) * sm(leafTop - t, 0.0, 0.09);
+          return [th(1, gp), th(1, PI * 2 - gp)];
+        },
         centre: { theta: -HALF, t: 0.56 },
         hinge: foldAcrossT(torso, leafTop, 0.01),
       },
@@ -734,19 +763,32 @@ export class Figure {
 
   _jacket() {
     const { torso, armL, armR } = this.body;
-    const off = 0.034;
+    // Ease over the body: the slim cut sits closer through chest and sleeve.
+    const off = this.style.slim ? 0.028 : 0.034;
+    const sOff = this.style.slim ? 0.016 : 0.022;
     const tB = BUTTON_STANCE;
     const ring = [];
     const base = -0.075;
+    const slim = this.style.slim;
+    // The slim cut is short, just covering the seat (~0.85 m from the floor,
+    // measured from photo 2); the classic three-piece falls to the knuckles.
+    const HEM = slim ? -0.215 : JACKET_HEM;
+    // Below the top button the fronts curve away. The slim cut (the reference
+    // suits) opens wide — about 9 cm apart at the lower button, rounded to
+    // ~22 cm at the hem — where the classic three-piece barely parts.
     const pin = (t) =>
-      t < tB ? base + 0.52 * Math.pow(sm(t, tB, JACKET_HEM), 1.1) : base + 0.69 * sm(t, tB, 0.545);
+      t < tB
+        ? base + (slim ? 0.65 * Math.pow(sm(t, tB, HEM), 0.9) : 0.52 * Math.pow(sm(t, tB, HEM), 1.1))
+        : base + 0.69 * sm(t, tB, 0.545);
+    // Waist suppression: the slim cut is taken in at the waist and close over the seat.
+    const shape = (t) => (slim ? 0.012 * gauss(t, 0.13) + 0.005 * sm(t, -0.12, HEM) : 0);
     const lapelWidth = (t) => {
       const body = 0.088 * Math.pow(sm(t, tB, 0.33), 0.75);
       const notch = 1 - 0.62 * sm(t, 0.355, 0.372) * (1 - sm(t, 0.392, 0.41));
       return body * notch * (1 - sm(t, 0.47, 0.5) * 0.4);
     };
     // The skirt below the waist swings with the walk.
-    const swing = (theta, t, p) => Math.pow(sm(p.y, -0.02, JACKET_HEM), 1.4);
+    const swing = (theta, t, p) => Math.pow(sm(p.y, -0.02, HEM), 1.4);
     // A light shoulder pad rounds the shoulder line out toward the sleeve head.
     const pad = (theta, t) => 0.008 * gauss(t - 0.452, 0.04) * Math.abs(Math.cos(theta));
     const jSkin = { shoulder: 0.45, leg: 0.22 };
@@ -760,10 +802,10 @@ export class Figure {
         {
           cols: 40,
           rows: 76,
-          offFn: (theta, t) => fOff + pad(theta, t),
+          offFn: (theta, t) => fOff + pad(theta, t) - shape(t),
           tRange: (u) => {
             const phi = lerp(0, HALF + 0.32, u);
-            return [JACKET_HEM + 0.055 * (1 - sm(phi, 0.0, 0.55)), 0.538];
+            return [HEM + 0.055 * (1 - sm(phi, 0.0, 0.55)), 0.538];
           },
           thetaRange: (t) => [th(s, pin(t)), th(s, HALF + 0.32)],
           swing,
@@ -773,9 +815,20 @@ export class Figure {
       );
       ring.push(front);
       this["front" + s] = front;
+      const tL = tB - (slim ? 0.105 : 0.13);
       if (s > 0) {
-        this._button(front, torso, HALF, tB, fOff + 0.004, 0.0085);
-        this._button(front, torso, HALF, tB - 0.13, fOff + 0.004, 0.0085);
+        this._button(front, torso, HALF, tB, fOff + 0.004 - shape(tB), 0.0085);
+        // The lower button sits just in from the curved-away edge.
+        this._button(front, torso, th(1, pin(tL) - base), tL, fOff + 0.004 - shape(tL), 0.0085);
+      } else if (this.full) {
+        // Its buttonhole on the other front, as in the reference photographs.
+        const hole = new THREE.Mesh(
+          new THREE.CapsuleGeometry(0.0013, 0.017, 2, 6),
+          new THREE.MeshStandardMaterial({ color: "#0d0d0e", roughness: 0.7 })
+        );
+        placeOnTube(hole, torso, th(s, pin(tL) - base + 0.004), tL, fOff + 0.0045 - shape(tL));
+        hole.rotateZ(Math.PI / 2);
+        this._attach(front, boneForTorsoY(hole.position.y), hole);
       }
 
       const lapel = this._piece(
@@ -789,7 +842,7 @@ export class Figure {
           offFn: (theta, t) => {
             const { rx } = torso.section(t);
             const fromRoll = Math.abs(theta - th(s, pin(t))) * (rx + fOff);
-            return fOff + 0.0075 + pad(theta, t) + 0.004 * gauss(fromRoll, 0.012);
+            return fOff + 0.0075 + pad(theta, t) - shape(t) + 0.004 * gauss(fromRoll, 0.012);
           },
           tRange: () => [tB + 0.005, 0.5],
           thetaRange: (t) => {
@@ -818,7 +871,7 @@ export class Figure {
         this._attach(lapel, "chest", hole);
       }
 
-      const flapTop = -0.135;
+      const flapTop = slim ? -0.088 : -0.135;
       const flap = this._piece(
         "jacket",
         `jacket-flap-${s}`,
@@ -826,10 +879,10 @@ export class Figure {
         {
           cols: 14,
           rows: 5,
-          off: fOff + 0.0065,
+          off: fOff + 0.0065 - shape(flapTop),
           tRange: () => [flapTop - 0.055, flapTop],
           thetaRange: () => [th(s, 0.62), th(s, 1.12)],
-          hinge: foldAcrossT(torso, flapTop, fOff + 0.0065),
+          hinge: foldAcrossT(torso, flapTop, fOff + 0.0065 - shape(flapTop)),
           swing,
         },
         "wool",
@@ -881,8 +934,8 @@ export class Figure {
       {
         cols: 48,
         rows: 76,
-        offFn: (theta, t) => off + pad(theta, t),
-        tRange: () => [JACKET_HEM, 0.538],
+        offFn: (theta, t) => off + pad(theta, t) - shape(t),
+        tRange: () => [HEM, 0.538],
         thetaRange: () => [th(1, HALF + 0.32), th(1, PI * 1.5 - 0.32)],
         swing,
       },
@@ -924,7 +977,7 @@ export class Figure {
           rows: 60,
           // Soft gathering just above the cuff.
           offFn: (theta, t) =>
-            0.022 +
+            sOff +
             0.006 * (1 - sm(t, -0.075, 0.1)) * (0.5 + 0.5 * Math.cos(theta)) +
             0.0022 * Math.sin(t * arm.length * 70 + theta * 2) * sm(t, 0.7, 0.84) * (1 - sm(t, 0.84, 0.87)),
           tRange: () => [-0.075, 0.885],
@@ -937,9 +990,9 @@ export class Figure {
       );
       ring.push(sleeve);
       const btnTheta = -0.6;
-      for (const t of [0.858, 0.836, 0.814, 0.792]) this._button(sleeve, arm, btnTheta, t, 0.0262, 0.0064, "foreArm" + S);
+      for (const t of [0.858, 0.836, 0.814, 0.792]) this._button(sleeve, arm, btnTheta, t, sOff + 0.0042, 0.0064, "foreArm" + S);
       if (this.full) {
-        const st = sleeveStitches(arm, { tHem: 0.874, tVentTop: 0.76, thetaVent: btnTheta + 0.24, off: 0.0256 }, this.stitchMat);
+        const st = sleeveStitches(arm, { tHem: 0.874, tVentTop: 0.76, thetaVent: btnTheta + 0.24, off: sOff + 0.0036 }, this.stitchMat);
         this._attach(sleeve, "foreArm" + S, st);
       }
       if (s > 0) this.cuffArm = { tube: arm, theta: btnTheta, sleeve };
@@ -997,9 +1050,11 @@ export class Figure {
             // Below the knee the trouser hangs straight, tapering a little to
             // the hem, rather than following the calf and ankle.
             const { rx } = leg.section(t);
-            const hem = this.style.slim ? 0.06 : 0.068;
-            const hang = THREE.MathUtils.lerp(0.078, hem, sm(t, 0.5, 1.0));
-            const ease = t > 0.4 ? Math.max(0.012, hang - rx) : 0.012;
+            // Slim (the reference suits): ~19 cm across the knee, ~16.5 at the hem.
+            const slim = this.style.slim;
+            const hang = slim ? THREE.MathUtils.lerp(0.066, 0.053, sm(t, 0.5, 1.0)) : THREE.MathUtils.lerp(0.078, 0.068, sm(t, 0.5, 1.0));
+            const min = slim ? 0.007 : 0.012;
+            const ease = t > 0.4 ? Math.max(min, hang - rx) : min;
             return ease + crease * (1 - sm(t, 0.9, 1.0) * 0.6) + brk;
           },
           tRange: () => [-0.06, 1.0],
@@ -1065,7 +1120,7 @@ export class Figure {
     const cw = COLOURWAYS[name];
     if (!cw) return;
     const w = new THREE.Color(cw.wool);
-    const sheen = w.clone().lerp(new THREE.Color("#c9d2e6"), 0.35);
+    const sheen = woolSheen(cw);
     for (const m of this.mats.wool) {
       m.color.lerp(w, t);
       m.sheenColor.lerp(sheen, t);
