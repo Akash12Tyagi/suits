@@ -238,3 +238,83 @@ head, 0.4 s per hair style, 0.6 s for the hands on one core).
 **New chapters:** *The Collection No. 1 (Sage)* and *No. 2 (Chestnut chalk stripe)*,
 in a daylight studio with an arch and plinth after the reference set. The page
 chrome switches to dark ink there, and a cut to black hides the jump between sets.
+
+## 12. Fourth pass: fidelity to the supplied references, and performance
+
+The brief: the supplied photographs are the source of truth; the character lacked
+definition; the site lagged. What changed, and why.
+
+**Cloth sampled from the photographs.** `src/atelier/assets/cloth-sage.jpg` comes from
+photo 3 (the invisible-mannequin sage jacket, a flat front panel below the waist
+button) and `cloth-chestnut.jpg` from photo 4 (the chestnut flat-lay). For each:
+divide the crop by a heavy Gaussian blur to flatten the photo's lighting, blend it
+with a half-period roll of itself so it tiles seamlessly, and save a 256 px tile
+(about 11 KB). For the stripe, the period was measured with an FFT of the column
+means (13.9 px), the slight slant was sheared out using the phase of that frequency at
+the top and bottom of the crop, and exactly eight stripes were kept, so the tile repeats
+across without a seam. One tile is 8.33 cm of cloth (the cloth UVs run at 12 tiles per metre),
+which puts the chalk stripe about 10 mm apart. The colour lives in the map;
+`wool` in the colourway only scales the photo back to an albedo.
+
+Colour was checked by sampling the render against the model photographs:
+
+| Mean of a patch | photo (2 or 5) | render (lookbook) | first render, before the fixes |
+|---|---|---|---|
+| Sage jacket | `#576855` shade … `#80957f` lit | `#66715c` | `#8d9a85` |
+| Sage trousers | `#596c56`–`#627661` | `#5b705c` | `#879a89` |
+| Chestnut jacket | `#371c0f` | `#553825` | `#725849` |
+| Chestnut trousers | `#4e2d17` | `#331c0d` | `#59433b` |
+
+The first render was too pale and grey; the fixed one sits inside the photographs' range,
+though the sage reads a touch warmer.
+
+Two shading changes were needed to keep those colours: the fibre sheen takes the
+cloth's own hue (a cool grey sheen greyed the chestnut out), the dielectric specular
+drops to 0.45 for photographed cloth, and the daylight lookbook tone-maps with
+Khronos **PBR Neutral** instead of ACES. ACES desaturates dark saturated colours,
+and PBR Neutral is designed to keep product base colours true. The composer applies
+tone mapping only in its output pass, so the switch costs one tiny shader and happens
+inside the cut to black.
+
+**The cut, measured from photos 2 and 5.** The slim jacket is shortened to just cover
+the seat (hem about 0.85 m from the floor; it was 0.75 m). It is taken in at the
+waist and the fronts curve away below the top button (about 9 cm apart at the lower
+button, about 22 cm at the hem), with the lower button set in from the edge and its
+buttonhole on the other front. The trousers taper to about 19 cm across the knee
+and 16.5 cm at the hem. The arms are slimmer and anatomical (biceps about 32 cm
+round, wrist about 19 cm), and the sleeves sit closer. The open collar's points
+spread over the lapels, and the neck is open one button, not two.
+
+**Faces.** The face is lofted from profile keys (half-width and front depth from
+brow to chin) with a jaw-underside plane, so the jawline and silhouette are drawn
+directly rather than emerging from blended blobs. Hair is the scalp grown outward
+by a style volume that ramps up from zero at the hairline, so it thins into the skin
+instead of ending like a cap.
+
+**Gotchas found in this pass.**
+* The composer renders the scene into its own target, so `antialias: true` on the
+  canvas never applied: every edge was aliased. The target is now multisampled
+  (4×, or 2× on low-power devices). Software rasterisers are detected through
+  `WEBGL_debug_renderer_info` and get no MSAA and a 1× canvas, because MSAA on the CPU
+  doubled startup there.
+* The body's neck tube rose to ear level. When a model turned his head, it poked
+  through the jaw as a dark patch. The sculpted head carries its own neck, so the
+  tube now stops below it.
+* A face self-shadow from a 6 m daylight shadow frustum is a blurred smear. Only the
+  hero's face (lit by the close atelier key) receives cast shadows.
+* A shadow map that has never been drawn does not exist, yet every lit material
+  samples it (`GL_INVALID_OPERATION`, and the draw is dropped). Each caster now
+  draws its map once.
+* React StrictMode runs effects twice in development. Concurrent `prepareCast` calls
+  now share one run instead of sculpting the cast twice.
+
+**Measured (headless, software GL, 1280×800).** No late shader compiles: the program
+count stays at 52 across all 14 chapters. Draw calls are 29–208 and triangles
+0.23–1.82 M per chapter, with 3–13 ms of JS per frame. Ready time is 26–28 s in the
+CPU rasteriser, the same as before this pass. That time is shader linking and
+buffer uploads, which a GPU does in a fraction of it.
+
+**Limits.** The cast are procedural sculpts. They now read as defined faces, but
+they are not photographs of people, so the lookbook chapters also show the
+supplied photography itself. The flat-lays (photos 1, 3 and 4) carry a third-party
+shirt label at the collar and are shown only as crops below it.

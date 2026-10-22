@@ -611,7 +611,27 @@ function unpack({ attrs, index }) {
  * headGeometry / hairGeometry / handGeometry read. Falls back to the main
  * thread if workers are unavailable. onProgress(done, total) reports progress.
  */
-export async function prepareCast(needs, onProgress = () => {}) {
+export function prepareCast(needs, onProgress = () => {}) {
+  // Concurrent callers (React runs effects twice in development) share one
+  // run instead of sculpting the whole cast twice in competing workers.
+  const key = needs.map(([d, q]) => `${d.name}-${q}`).join(",");
+  let run = casting.get(key);
+  if (!run) {
+    const listeners = new Set();
+    run = { listeners, promise: castInWorkers(needs, (done, total) => listeners.forEach((f) => f(done, total))) };
+    run.promise.then(
+      () => casting.delete(key),
+      () => casting.delete(key)
+    );
+    casting.set(key, run);
+  }
+  run.listeners.add(onProgress);
+  return run.promise;
+}
+
+const casting = new Map();
+
+async function castInWorkers(needs, onProgress) {
   const jobs = [];
   const queued = new Set();
   const queue = (key, job) => {

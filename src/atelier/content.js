@@ -1,3 +1,8 @@
+import sageLook from "./assets/lookbook/sage-look.webp";
+import sageDetail from "./assets/lookbook/sage-detail.webp";
+import chestnutLook from "./assets/lookbook/chestnut-look.webp";
+import chestnutDetail from "./assets/lookbook/chestnut-detail.webp";
+
 export const BRAND = "Octaboot";
 
 // One entry per scroll chapter. `side` is where the text sits on desktop;
@@ -101,6 +106,11 @@ export const CHAPTERS = [
     title: ["Sage,", "Two-Piece"],
     body: "A soft sage wool with a little stretch, cut close with a notch lapel and two black buttons. Worn the way it was made to be: shirt open at the neck, a pink silk square, brown oxfords.",
     spec: ["Cloth", "Sage wool blend · slight stretch"],
+    // The supplied reference photography (the 3D cloth is sampled from it).
+    photos: [
+      { src: sageLook, w: 720, h: 1080, alt: "A model in the sage two-piece, shirt open at the neck, pink pocket square" },
+      { src: sageDetail, w: 520, h: 520, alt: "Detail of the sage jacket: two black buttons, flap pockets, front darts" },
+    ],
   },
   {
     id: "chestnut",
@@ -110,6 +120,10 @@ export const CHAPTERS = [
     title: ["Chestnut", "Chalk Stripe"],
     body: "Rich chestnut brown ruled with a fine cream stripe, the stripe run true from shoulder to hem. A plum square, a crisp white shirt, and nothing more.",
     spec: ["Cloth", "Chestnut wool · cream chalk stripe"],
+    photos: [
+      { src: chestnutLook, w: 720, h: 1080, alt: "A model in the chestnut chalk-stripe two-piece with a plum pocket square" },
+      { src: chestnutDetail, w: 520, h: 520, alt: "Detail of the chestnut chalk stripe: beaded cream stripes, flap pocket, black buttons" },
+    ],
   },
   {
     id: "few",

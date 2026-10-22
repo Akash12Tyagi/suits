@@ -78,7 +78,14 @@ export class Stage {
       powerPreference: "high-performance",
       alpha: false,
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.lowPower ? 1.5 : 2));
+    // A software rasteriser (no GPU, or a blocklisted one) gets the light path:
+    // no multisampling and a 1x canvas.
+    const gl = renderer.getContext();
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    const gpu = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+    this.software = /swiftshader|llvmpipe|softpipe|software|basic render/i.test(gpu);
+    if (this.software) this.lowPower = true;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.software ? 1 : this.lowPower ? 1.5 : 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
@@ -230,7 +237,7 @@ export class Stage {
     this._resize();
 
     // Adaptive resolution: hold ~60 fps by trading pixel ratio, with hysteresis.
-    this.dprMax = Math.min(window.devicePixelRatio, this.lowPower ? 1.5 : 2);
+    this.dprMax = Math.min(window.devicePixelRatio, this.software ? 1 : this.lowPower ? 1.5 : 2);
     this.dprMin = Math.min(1, this.dprMax);
     this.dpr = this.dprMax;
     this.frameMs = 16.7;
@@ -301,7 +308,7 @@ export class Stage {
   _composer() {
     // The scene renders into the composer's target, not the canvas, so the
     // canvas's own antialiasing never applies: multisample the target instead.
-    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: this.lowPower ? 2 : 4 });
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: this.software ? 0 : this.lowPower ? 2 : 4 });
     const composer = new EffectComposer(this.renderer, target);
     composer.addPass(new RenderPass(this.scene, this.camera));
     this.bokeh = new BokehPass(this.scene, this.camera, { focus: 0.5, aperture: 0.02, maxblur: 0.008 });

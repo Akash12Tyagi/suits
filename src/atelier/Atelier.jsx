@@ -14,8 +14,38 @@ import { setupScroll, supportsWebGL } from "./scroll.js";
 
 const pad = (n) => String(n).padStart(2, "0");
 
+// The supplied photography for a look: thumbnails that open full size in a dialog.
+function Photographs({ photos, title }) {
+  const dialog = useRef(null);
+  const [open, setOpen] = useState(null);
+  const show = (p) => {
+    setOpen(p);
+    dialog.current?.showModal();
+  };
+  return (
+    <>
+      <figure className="photos">
+        <div className="photos__row">
+          {photos.map((p) => (
+            <button key={p.src} type="button" className="photos__thumb" onClick={() => show(p)} aria-label={`Enlarge: ${p.alt}`}>
+              <img src={p.src} width={p.w} height={p.h} alt="" loading="lazy" decoding="async" />
+            </button>
+          ))}
+        </div>
+        <figcaption className="photos__caption">Photographed</figcaption>
+      </figure>
+      <dialog ref={dialog} className="lightbox" aria-label={title} onClose={() => setOpen(null)} onClick={() => dialog.current?.close()}>
+        {open && <img src={open.src} width={open.w} height={open.h} alt={open.alt} />}
+        <button type="button" className="lightbox__close" aria-label="Close">
+          ×
+        </button>
+      </dialog>
+    </>
+  );
+}
+
 function Chapter({ chapter, index, active, colour, onColour, pattern, onPattern }) {
-  const { side, eyebrow, title, body, spec, swatches, patterns, drag, cta } = chapter;
+  const { side, eyebrow, title, body, spec, swatches, patterns, drag, cta, photos } = chapter;
   return (
     <section
       className={`chapter chapter--${side}${chapter.theme ? ` chapter--${chapter.theme}` : ""}${active ? " is-active" : ""}`}
@@ -52,6 +82,7 @@ function Chapter({ chapter, index, active, colour, onColour, pattern, onPattern 
               {spec[1]}
             </p>
           )}
+          {photos && <Photographs photos={photos} title={title.join(" ")} />}
           {swatches && (
             <div className="swatches" role="group" aria-label="Choose a cloth colour">
               {SWATCHES.map((s) => (

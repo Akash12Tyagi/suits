@@ -19,14 +19,17 @@ npm run lint
 The original API dashboard is still available at `/#/dashboard`.
 
 Dev only: `/lab.html?who=luca&yaw=0.6` is a turntable for sculpting heads and hair
-(`&view=hand&curl=0.3` for hands); `node dev/sdftest.mjs` times the sculpts.
+(`&view=hand&curl=0.3` for hands, `&views=3` for front / three-quarter / profile,
+`&light=day` for the lookbook light); `node dev/sdftest.mjs` times the sculpts and
+`node dev/budget.mjs` reports their triangle counts.
 
 ## How it is built
 
 | Path | Role |
 |------|------|
-| `src/atelier/Atelier.jsx` | Page: 12 chapters, text reveals, colour and cloth pickers, footer |
-| `src/atelier/content.js` | All copy and chapter order |
+| `src/atelier/Atelier.jsx` | Page: 14 chapters, text reveals, colour and cloth pickers, the lookbook photographs, footer |
+| `src/atelier/content.js` | All copy, chapter order, and which photographs each look shows |
+| `src/atelier/assets/` | Cloth tiles sampled from the supplied photos (`cloth-*.jpg`), and the lookbook photographs (`lookbook/*.webp`) |
 | `src/atelier/scroll.js` | Lenis smooth scroll synced to GSAP ScrollTrigger |
 | `src/atelier/three/body.js` | The body as parametric tubes (torso, arms, legs) |
 | `src/atelier/three/rig.js` | 20-bone skeleton over the tubes, skin weights |

@@ -364,6 +364,7 @@ a {
 .chapter .eyebrow,
 .chapter .body,
 .chapter .spec,
+.chapter .photos,
 .chapter .swatches,
 .chapter .cta {
   opacity: 0;
@@ -381,6 +382,7 @@ a {
 .chapter.is-active .eyebrow,
 .chapter.is-active .body,
 .chapter.is-active .spec,
+.chapter.is-active .photos,
 .chapter.is-active .swatches,
 .chapter.is-active .cta {
   opacity: 1;
@@ -400,9 +402,92 @@ a {
 .chapter.is-active .spec {
   transition-delay: 0.34s;
 }
+.chapter.is-active .photos,
 .chapter.is-active .swatches,
 .chapter.is-active .cta {
   transition-delay: 0.44s;
+}
+
+/* The supplied photography beside the 3D look. */
+.photos {
+  margin: 1.6rem 0 0;
+}
+
+.photos__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+}
+
+.chapter--right .photos__row {
+  justify-content: flex-end;
+}
+
+.photos__thumb {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+
+.photos__thumb img {
+  display: block;
+  width: auto;
+  height: 9.5rem;
+  transition: transform 0.6s var(--ease-out);
+}
+
+.photos__thumb:hover img,
+.photos__thumb:focus-visible img {
+  transform: scale(1.04);
+}
+
+.photos__thumb:focus-visible {
+  outline: 1px solid var(--paper);
+  outline-offset: 3px;
+}
+
+.photos__caption {
+  margin-top: 0.6rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+}
+
+.lightbox {
+  max-width: min(92vw, 720px);
+  max-height: 92vh;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-out;
+}
+
+.lightbox::backdrop {
+  background: rgba(10, 11, 13, 0.82);
+}
+
+.lightbox img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 92vh;
+  object-fit: contain;
+}
+
+.lightbox__close {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.6rem;
+  border: 0;
+  background: none;
+  color: #fff;
+  font-size: 1.8rem;
+  line-height: 1;
+  cursor: pointer;
 }
 
 /* Hero waits for the stage before it speaks. */
@@ -762,8 +847,17 @@ html.is-light .rail {
     margin-left: 0;
   }
 
-  .chapter--right .swatches {
+  .chapter--right .swatches,
+  .chapter--right .photos__row {
     justify-content: flex-start;
+  }
+
+  .photos {
+    margin-top: 1.1rem;
+  }
+
+  .photos__thumb img {
+    height: 6rem;
   }
 
   .headline {

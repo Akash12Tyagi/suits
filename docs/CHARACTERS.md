@@ -61,10 +61,11 @@ and reddens the terminator, which stands in for subsurface scattering.
 
 **Wears:** the story's midnight three-piece (`threePiece`), from first measure to
 finished suit. In the lookbook he wears **No. 1, Sage two-piece**: sage wool with a
-little stretch, notch lapel with a buttonhole, two black buttons, flap pockets, a
-white shirt open at the neck with black buttons, a puffed pink silk square, slim
-trousers with a single soft break, and brown oxfords (`openTwoPiece`, colourway
-`sage`).
+little stretch (the cloth map is sampled from the supplied photograph), notch lapel
+with a buttonhole, two black buttons with a wide cutaway below the top one, flap
+pockets, a short jacket that just covers the seat, a white shirt open one button at
+the neck with black buttons and a spread collar over the lapels, a puffed pink silk
+square, slim tapered trousers, and brown oxfords (`openTwoPiece`, colourway `sage`).
 
 ## Kenji — the face of No. 2 (Chestnut chalk stripe)
 
@@ -81,8 +82,8 @@ trousers with a single soft break, and brown oxfords (`openTwoPiece`, colourway
 | Posture | Weight on the left leg, right foot crossed in front; left hand in the pocket, right hand at the button; head turned a quarter to his right |
 | Movement | Light on his feet; in the procession he walks a beat ahead of the others |
 
-**Wears:** **No. 2, Chestnut chalk stripe**: rich chestnut wool ruled with a fine
-cream stripe every 12.5 mm (the colour lives in the cloth map), notch lapel, two
+**Wears:** **No. 2, Chestnut chalk stripe**: dark chocolate wool ruled with a beaded
+cream stripe about every 10 mm (the cloth map is sampled from the supplied flat-lay), notch lapel, two
 black buttons, a plum silk square, a white shirt open at the neck, slim trousers, dark
 brown oxfords (`openTwoPiece`, colourway `chestnut`). In the procession he wears the
 bordeaux three-piece.
@@ -113,5 +114,6 @@ Skin fair warm `#d6a986`, mid-brown close crop, longer chin (1.05), light stubbl
   the edge and the copy on the open side.
 * **Gaze.** Never at camera. A quarter turn off-axis, eyes following the head.
 * **What we do not do.** No recognisable real faces, no celebrity look-alikes, no
-  third-party brand marks on the clothes. (The reference photos carry another
-  label; ours carry none.)
+  third-party brand marks on the clothes. The cast are original sculpts. The
+  supplied photographs appear as photographs, beside the 3D looks. The flat-lays
+  carry another brand's shirt label, so they are shown only as crops below the collar.
