@@ -17,6 +17,8 @@ npm run lint
 ```
 
 The original API dashboard is still available at `/#/dashboard`.
+**The Legacy Protocol** — a cinematic, scroll-directed short in four acts — lives at `/#/legacy`
+(see [below](#the-legacy-protocol)).
 
 Dev only: `/lab.html?who=luca&yaw=0.6` is a turntable for sculpting heads and hair
 (`&view=hand&curl=0.3` for hands); `node dev/sdftest.mjs` times the sculpts.
@@ -58,3 +60,29 @@ To retime a chapter, edit `choreography.js`. Chapter *i* is pinned for timeline 
 
 No images or models are downloaded: geometry, including the faces and hands, is generated in code, cloth, wood and
 tape textures are drawn on a canvas at load, and fonts are self-hosted via `@fontsource`.
+
+## The Legacy Protocol
+
+*The end of an era. The rise of Doom.* A four-act short film rendered live in WebGL and
+directed by scroll: a damaged helmet and a dying arc reactor, the armour coming apart into
+embers, a silent gap, then a hall of iron where a cloaked figure calls up a sphere of green
+energy. Open `/#/legacy`. An unofficial fan tribute; every model is sculpted in code and every
+sound is synthesised in the browser.
+
+Screenplay, storyboard, timelines and technical design: [`docs/LEGACY_PROTOCOL.md`](docs/LEGACY_PROTOCOL.md).
+
+| Path | Role |
+|------|------|
+| `src/legacy/Legacy.jsx` | Gate (enter with / without sound), narration overlays, HUD, fallback |
+| `src/legacy/content.js` | Acts, narration, title cards and their timeline times |
+| `src/legacy/three/sculpts.js` | SDF sculpts: helmet shell + faceplate, Doom's mask, hood, armour |
+| `src/legacy/three/sculpt.worker.js` | Meshes the sculpts in parallel workers |
+| `src/legacy/three/shading.js` | Shared GLSL: simplex noise, the erosion field, metal wear |
+| `src/legacy/three/helmetSet.js` | Acts I–II: helmet, faceplate servo, arc reactor, embers, shards |
+| `src/legacy/three/doomSet.js` | Acts III–IV: hall, gears, figure, vertex-animated cloak, sigil, energy |
+| `src/legacy/three/Stage.js` | Renderer, environments, post (DOF, bloom, grain), camera rig, heartbeat, adaptive quality |
+| `src/legacy/three/choreography.js` | The single scrubbed timeline and the forward-only audio cue track |
+| `src/legacy/audio/Score.js` | Web Audio synthesis of the whole soundtrack |
+
+To retime a moment, edit `choreography.js` (camera, light and state tweens) and `content.js`
+(copy). Timeline units are 3 per act; 1 unit ≈ 110 vh of scroll.
